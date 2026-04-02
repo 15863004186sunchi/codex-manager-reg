@@ -130,7 +130,8 @@ def main():
     print("🚀 OpenAI 批量自动注册工具 (Batch + LuckMail + Hybrid)")
     print("=" * 60)
 
-    filename = r"E:\AILearn\20260321codexconsole\codex-console\hotmail三次购买200个.txt"
+    # 如果提供了命令行参数，则优先使用命令行传入的文件名，否则默认读取当前目录下的 txt 文件
+    filename = sys.argv[1] if len(sys.argv) > 1 else "hotmail三次购买200个.txt"
 
     if not os.path.exists(filename):
         print(f"文件不存在: {filename}，退出。")
