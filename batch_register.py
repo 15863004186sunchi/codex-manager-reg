@@ -12,7 +12,7 @@ logging.basicConfig(
 sys.path.append(os.getcwd())
 
 from src.core.anyauto.register_flow import AnyAutoRegistrationEngine
-from src.core.anyauto.luckmail_client import LuckMailEmailService
+from src.core.anyauto.imap_client import ImapEmailService
 from src.core.upload.cpa_upload import upload_to_cpa
 
 # ==========================================
@@ -127,7 +127,7 @@ def parse_accounts_file(filepath):
 
 def main():
     print("=" * 60)
-    print("🚀 OpenAI 批量自动注册工具 (Batch + LuckMail + Hybrid)")
+    print("🚀 OpenAI 批量自动注册工具 (Batch + Native IMAP + Hybrid)")
     print("=" * 60)
 
     # 如果提供了命令行参数，则优先使用命令行传入的文件名，否则默认读取当前目录下的 txt 文件
@@ -147,28 +147,26 @@ def main():
     # 构建代理池
     proxy_pool = load_proxy_pool(GLOBAL_PROXY)
 
-    # 配置 LuckMail 服务
-    luckmail_base_url = "https://api.luckmail.net"
-    
-    luckmail_service = LuckMailEmailService(base_url=luckmail_base_url, api_key="")
+    # 配置自研 IMAP 直连服务
+    imap_service = ImapEmailService()
     
     success_count = 0
     
-    for idx, (email, token) in enumerate(accounts):
+    for idx, (email, password_or_token) in enumerate(accounts):
         print("\n" + "-" * 50)
         print(f"⏳ [{idx+1}/{len(accounts)}] 开始处理: {email}")
         print("-" * 50)
         
-        # 将 token 注册进去
-        luckmail_service.register_token(email, token)
+        # 注册原生密码供 IMAP 抓取 (如果这里本来存的是 token 则请确保 txt 已经替换为原生密码)
+        imap_service.register_credentials(email, password_or_token)
         
         # 告诉 service 当前正在处理哪个邮箱，以供 `create_email` 接口调用
-        luckmail_service.current_email = email
+        imap_service.current_email = email
         
         # 注意：此处引擎重建！
         try:
             engine = AnyAutoRegistrationEngine(
-                email_service=luckmail_service,
+                email_service=imap_service,
                 browser_mode="hybrid",
                 callback_logger=lambda m: logging.info(f"[Engine] {m}")
             )
