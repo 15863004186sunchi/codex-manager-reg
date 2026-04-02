@@ -19,9 +19,9 @@ from src.core.upload.cpa_upload import upload_to_cpa
 # CPA 平台配置 (可选)
 # 如果需要自动上传到 CPA 平台，请设置 ENABLED 为 True 并填写 URL/TOKEN
 # ==========================================
-CPA_ENABLED = False
-CPA_API_URL = ""
-CPA_API_TOKEN = ""
+CPA_ENABLED = True
+CPA_API_URL = "http://35.233.135.250:8317/v0/management"
+CPA_API_TOKEN = "sunchi"
 
 # ==========================================
 # 在这里填入你购买的动态住宅代理，或者 Proxy List 下载链接！
