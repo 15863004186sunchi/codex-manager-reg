@@ -735,12 +735,27 @@ class ChatGPTClient:
         with sync_playwright() as p:
             # 每次均使用系统临时目录作为上下文，实现彻底清空缓存和旧有登录状态
             with tempfile.TemporaryDirectory() as temp_dir:
+                
+                # 配置代理字典供 Playwright 识别
+                pw_proxy = None
+                if self.proxy:
+                    parsed = urlparse(self.proxy)
+                    if parsed.username and parsed.password:
+                        pw_proxy = {
+                            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+                            "username": parsed.username,
+                            "password": parsed.password
+                        }
+                    else:
+                        pw_proxy = {"server": self.proxy}
+
                 browser = p.chromium.launch_persistent_context(
                     user_data_dir=temp_dir,
                     headless=False,  # 保持有界面以应对极端风控
                     args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
                     user_agent=self.ua,
-                    viewport={"width": 1280, "height": 800}
+                    viewport={"width": 1280, "height": 800},
+                    proxy=pw_proxy
                 )
                 page = browser.new_page()
                 
