@@ -48,7 +48,20 @@ uv sync --all-extras
 # 4. 安装 Playwright 及 Linux 系统字体/渲染库
 echo "🌐 [4/4] 正在安装 Playwright 无头浏览器依赖..."
 uv run python -m playwright install chromium
-uv run python -m playwright install-deps chromium
+
+if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
+    echo "检测到 CentOS/RHEL，正在手动安装 Chromium 运行补丁包 (跳过 Playwright apt 脚本)..."
+    PKG_MGR=$(command -v dnf || command -v yum)
+    $PKG_MGR install -y \
+        alsa-lib at-spi2-atk atk cairo cairo-gobject cups-libs dbus-libs \
+        expat fontconfig freetype gdk-pixbuf2 glib2 gtk3 libdrm libgbm \
+        libwayland-client libwayland-cursor libwayland-egl libxkbcommon \
+        libX11 libXcomposite libXdamage libXext libXfixes libXi libXrandr \
+        libXrender libXtst mesa-libgbm pango libXScrnSaver
+else
+    echo "检测到 Ubuntu/Debian，正在通过 Playwright 官方工具安装依赖..."
+    uv run python -m playwright install-deps chromium
+fi
 
 echo "============================================="
 echo "🎉 环境配置全部彻底完成！"
