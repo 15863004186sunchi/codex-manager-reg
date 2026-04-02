@@ -770,25 +770,28 @@ class ChatGPTClient:
 
                 try:
                     self._log(f"通过真实浏览器访问授权链接 (auth_url)...")
-                    page.goto(auth_url, wait_until="networkidle")
+                    # 避免 networkidle 死等，改用 domcontentloaded
+                    page.goto(auth_url, wait_until="domcontentloaded", timeout=60000)
+                    page.wait_for_timeout(3000) # 让 React 组件渲染
 
                     # 如果页面依然要求输入邮箱
                     try:
-                        email_input = page.locator("input[type='email'], input[name='email'], input[name='username']")
-                        if email_input.is_visible(timeout=3000):
+                        email_input = page.locator("input[type='email'], input[name='email'], input[name='username']").first
+                        if email_input.is_visible():
                             email_input.fill(email)
-                            page.locator("button[type='submit'], button:has-text('Continue')").click()
-                            page.wait_for_load_state("networkidle")
+                            page.locator("button[type='submit'], button:has-text('Continue')").first.click()
+                            page.wait_for_timeout(3000)
                     except Exception:
                         pass
                     
                     # 1. 密码填写 (绕过 Stage 1 风控)
                     try:
                         self._log("📝 [Playwright] 填写密码...")
-                        pwd_input = page.locator("input[type='password'], input[name='password']")
-                        pwd_input.wait_for(timeout=10000)
+                        pwd_input = page.locator("input[type='password'], input[name='password']").first
+                        pwd_input.wait_for(timeout=15000)
                         pwd_input.fill(password)
-                        page.locator("button[type='submit'], button:has-text('Continue')").click()
+                        page.locator("button[type='submit'], button:has-text('Continue')").first.click()
+                        page.wait_for_timeout(3000)
                     except Exception as e:
                         return False, f"Playwright 阶段填写密码失败: {e}"
                     
