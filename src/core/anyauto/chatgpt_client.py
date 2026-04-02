@@ -6,6 +6,7 @@ ChatGPT 注册客户端模块
 import random
 import uuid
 import time
+import math
 from urllib.parse import urlparse
 
 try:
@@ -730,8 +731,13 @@ class ChatGPTClient:
         """混合驱动：使用 Playwright 完成高风险注册流程（带清空缓存策略），完成后回收 Session Token。"""
         import tempfile
         from playwright.sync_api import sync_playwright
+        try:
+            from playwright_stealth import stealth_sync
+        except ImportError:
+            self._log("⚠️ 未检测到 playwright-stealth 库，指纹隐藏可能不完整。")
+            stealth_sync = None
 
-        self._log("🌟 启动 Playwright Hybrid Flow (Headful)...")
+        self._log("🌟 启动 Playwright Hybrid Flow (Headful + Stealth)...")
         with sync_playwright() as p:
             # 每次均使用系统临时目录作为上下文，实现彻底清空缓存和旧有登录状态
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -759,6 +765,11 @@ class ChatGPTClient:
                 )
                 page = browser.new_page()
                 
+                # 开启指纹隐藏插件
+                if stealth_sync:
+                    stealth_sync(page)
+                    self._log("🛡️ [Stealth] 已启用浏览器指纹混淆插件。")
+                
                 # 注入关键的 oai-did 确保从协议层传过去的 session 是一致的
                 try:
                     browser.add_cookies([
@@ -776,21 +787,24 @@ class ChatGPTClient:
 
                     # 如果页面依然要求输入邮箱
                     try:
-                        email_input = page.locator("input[type='email'], input[name='email'], input[name='username']").first
+                        email_input_sel = "input[type='email'], input[name='email'], input[name='username']"
+                        email_input = page.locator(email_input_sel).first
                         if email_input.is_visible():
-                            email_input.fill(email)
-                            page.locator("button[type='submit'], button:has-text('Continue')").first.click()
+                            self._log("📝 [Playwright] 填入注册邮箱...")
+                            self._human_type(page, email_input_sel, email)
+                            self._human_click(page, "button[type='submit'], button:has-text('Continue')")
                             page.wait_for_timeout(3000)
                     except Exception:
                         pass
                     
                     # 1. 密码填写 (绕过 Stage 1 风控)
                     try:
-                        self._log("📝 [Playwright] 填写密码...")
-                        pwd_input = page.locator("input[type='password'], input[name='password']").first
-                        pwd_input.wait_for(timeout=15000)
-                        pwd_input.fill(password)
-                        page.locator("button[type='submit'], button:has-text('Continue')").first.click()
+                        self._log("📝 [Playwright] 准备填写密码...")
+                        pwd_input_sel = "input[type='password'], input[name='password']"
+                        # 等待元素出现
+                        page.wait_for_selector(pwd_input_sel, timeout=15000)
+                        self._human_type(page, pwd_input_sel, password)
+                        self._human_click(page, "button[type='submit'], button:has-text('Continue')")
                         page.wait_for_timeout(3000)
                     except Exception as e:
                         return False, f"Playwright 阶段填写密码失败: {e}"
@@ -804,23 +818,26 @@ class ChatGPTClient:
                     try:
                         self._log(f"🔑 [Playwright] 填入验证码: {otp_code}")
                         page.locator("input[inputmode='numeric']").first.wait_for(timeout=15000)
-                        inputs = page.locator("input[inputmode='numeric']").all()
-                        if len(inputs) == 6:
-                            for idx, char in enumerate(otp_code):
-                                inputs[idx].fill(char)
-                        else:
-                            page.locator("input[inputmode='numeric']").fill(otp_code)
+                        # 这里直接使用 human_type 在第一个输入框上，通常会自动跳转
+                        self._human_type(page, "input[inputmode='numeric']", otp_code, delay_range=(0.1, 0.3))
+                        page.wait_for_timeout(3000)
                     except Exception as e:
                         return False, f"Playwright 阶段填写验证码失败: {e}"
                     
                     # 3. 填写个人资料 (绕过 Stage 2 风控，带 so-token)
                     try:
                         self._log("👤 [Playwright] 填写个人资料 (Name / Birthdate)...")
-                        name_input = page.locator("input[name='name'], input[id='name']")
-                        name_input.wait_for(timeout=15000)
-                        name_input.fill(f"{first_name} {last_name}")
-                        page.locator("input[name='birthday'], input[id='birthday'], input[name='birthdate']").fill(birthdate)
-                        page.locator("button[type='submit'], button:has-text('Agree')").click()
+                        name_sel = "input[name='name'], input[id='name']"
+                        page.wait_for_selector(name_sel, timeout=15000)
+                        
+                        self._human_type(page, name_sel, f"{first_name} {last_name}")
+                        page.wait_for_timeout(1000)
+                        
+                        bday_sel = "input[name='birthday'], input[id='birthday'], input[name='birthdate']"
+                        self._human_type(page, bday_sel, birthdate)
+                        page.wait_for_timeout(1000)
+                        
+                        self._human_click(page, "button[type='submit'], button:has-text('Agree'), button:has-text('Finish')")
                     except Exception as e:
                         self._log(f"填写个人资料超时或跳过: {e}")
                     
