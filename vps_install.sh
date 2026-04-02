@@ -42,13 +42,13 @@ else
 fi
 
 # 3. 同步和构建 Python 虚拟环境
-echo "🐍 [3/4] 正在通过 uv 构建项目依赖..."
-uv sync
+echo "🐍 [3/4] 正在通过 uv 构建项目依赖 (含 Playwright)..."
+uv sync --all-extras
 
 # 4. 安装 Playwright 及 Linux 系统字体/渲染库
 echo "🌐 [4/4] 正在安装 Playwright 无头浏览器依赖..."
-uv run playwright install chromium
-uv run playwright install-deps chromium
+uv run python -m playwright install chromium
+uv run python -m playwright install-deps chromium
 
 echo "============================================="
 echo "🎉 环境配置全部彻底完成！"
