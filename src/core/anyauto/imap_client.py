@@ -1,5 +1,5 @@
 import imaplib
-import email
+import email as email_lib
 import re
 import time
 
@@ -75,7 +75,7 @@ class ImapEmailService:
                                 
                                 for response_part in msg_data:
                                     if isinstance(response_part, tuple):
-                                        msg = email.message_from_bytes(response_part[1])
+                                        msg = email_lib.message_from_bytes(response_part[1])
                                         
                                         # 1. 严格过滤发件人域名
                                         from_addr = str(msg.get("From", "")).lower()
