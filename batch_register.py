@@ -64,37 +64,35 @@ def load_proxy_pool(proxy_input):
 
 def save_token_info(email, password, result):
     """
-    将注册成功的账号信息保存为 CPA 格式的 JSON 并尝试上传
+    将注册成功的账号信息保存为用户要求的合格 Token 格式 JSON 并尝试上传
     """
     token_dir = "tokens"
     if not os.path.exists(token_dir):
         os.makedirs(token_dir)
         
-    # 构造 CPA 格式的 JSON (严格对齐 src/core/upload/cpa_upload.py 的 generate_token_json)
-    # 同时也保留 session_token，因为 Codex 类型通常需要此项
     metadata = result.get("metadata", {})
+    timestamp = int(time.time())
     
+    # 按照用户提供的“合格 token 文件”格式严格构造
     token_data = {
-        "type": "codex",
-        "email": email,
-        "password": password, # 原始密码，供参考
-        "expired": metadata.get("expires", ""), 
         "id_token": result.get("id_token", ""),
-        "account_id": result.get("account_id", ""),
         "access_token": result.get("access_token", ""),
-        "session_token": result.get("session_token", ""), # 重要：Session 复用流的核心
-        "refresh_token": result.get("refresh_token", ""),
-        "last_refresh": time.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
+        # 如果没有 refresh_token，则使用 session_token 填充以通过验证
+        "refresh_token": result.get("refresh_token", "") or result.get("session_token", ""),
+        "account_id": result.get("account_id", ""),
+        "last_refresh": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), # 使用 Zulu UTC 时间
+        "email": email,
+        "type": "codex",
+        "expired": metadata.get("expires", "")
     }
     
-    # 也可以把完整的 metadata 挂载进去，不影响主要字段解析
-    token_data["metadata"] = metadata
+    # 文件名格式参考用户截图: token_email_timestamp.json
+    file_path = os.path.join(token_dir, f"token_{email}_{timestamp}.json")
     
-    file_path = os.path.join(token_dir, f"{email}.json")
     try:
         with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(token_data, f, ensure_ascii=False, indent=2)
-        print(f"📂 成功存档 Token 文件: {file_path}")
+            json.dump(token_data, f, ensure_ascii=False, indent=4)
+        print(f"📂 存档符合标准格式的 Token 文件: {file_path}")
     except Exception as e:
         print(f"⚠️ 存档 Token 文件失败: {e}")
 
