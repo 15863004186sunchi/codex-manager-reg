@@ -17,8 +17,9 @@ if command -v dnf &> /dev/null; then
     echo "使用 dnf (CentOS/RHEL) 进行安装..."
     dnf install -y epel-release || true
     dnf config-manager --set-enabled crb || true
-    dnf install -y curl git python3 python3-pip util-linux xorg-x11-xauth
-    dnf install -y --enablerepo=crb --enablerepo=epel xorg-x11-server-Xvfb xvfb || true
+    dnf install -y curl git python3 python3-pip util-linux
+    # CentOS 10 已移除旧版 Xvfb，现采用 xwayland-run 与 mutter 作为无头显示服务器
+    dnf install -y --enablerepo=crb --enablerepo=epel xwayland-run mutter dbus-x11 || true
 elif command -v yum &> /dev/null; then
     echo "使用 yum (CentOS 7/8) 进行安装..."
     yum install -y epel-release || true
@@ -31,88 +32,26 @@ else
     echo "❌ 无法识别的包管理器，请手动安装: curl, git, xvfb, python3"
 fi
 
-# 特别处理 CentOS 下 xvfb-run 脚本缺失/损坏的问题 (RHEL/CentOS 常见坑)
-# 如果文件存在但包含 404 错误（之前的失败尝试），先清理它
-if [ -f /usr/local/bin/xvfb-run ] && grep -q "404" /usr/local/bin/xvfb-run; then
-    echo "发现损坏的 xvfb-run 脚本，正在清理..."
-    rm -f /usr/local/bin/xvfb-run
-fi
-
-if ! command -v xvfb-run &> /dev/null; then
-    if command -v Xvfb &> /dev/null; then
-        echo "正在植入通用 xvfb-run 包装脚本..."
-        cat <<'EOF' > /usr/local/bin/xvfb-run
+# 特别处理 CentOS 10 下 Xvfb 被废弃的问题
+# 我们使用官方的 xwfb-run (由 xwayland-run 提供) 来代替 xvfb-run
+if command -v xwfb-run &> /dev/null; then
+    echo "检测到 xwayland-run 环境，正在建立 xvfb-run 的向后兼容代理脚本..."
+    cat <<'EOF' > /usr/local/bin/xvfb-run
 #!/bin/bash
-# Build-Depends on xvfb, xbase-clients, and xfonts-base.
-set -e
-PROGNAME=xvfb-run
-SERVERNUM=99
-AUTHFILE=""
-ERRORFILE=/dev/null
-STARTWAIT=3
-XVFBARGS="-screen 0 1280x1024x24 -ac +extension GLX +render -noreset"
-LISTENTCP="-nolisten tcp"
-XAUTHPROTO=.
-
-# Find a free server number by looking at .X*-lock files in /tmp.
-find_free_servernum() {
-    i=$SERVERNUM
-    while [ -f /tmp/.X$i-lock ]; do
-        i=$(($i + 1))
-    done
-    echo $i
-}
-
-# Simple parse of command line for common options
-while [ $# -gt 0 ]; do
-    case "$1" in
-        -a|--auto-servernum) SERVERNUM=$(find_free_servernum) ;;
-        -n|--server-num) SERVERNUM="$2"; shift ;;
-        -s|--server-args) XVFBARGS="$2"; shift ;;
-        -w|--wait) STARTWAIT="$2"; shift ;;
-        --) shift; break ;;
-        -*) ;; # skip unknown options
-        *) break ;;
-    esac
-    shift
-done
-
-if [ -z "$*" ]; then
-    echo "Usage: xvfb-run [options] command"
-    exit 2
-fi
-
-if ! command -v xauth >/dev/null; then
-    echo "error: xauth command not found"
-    exit 3
-fi
-
-if [ -z "$AUTHFILE" ]; then
-    XVFB_RUN_TMPDIR="$(mktemp --directory --tmpdir xvfb-run.XXXXXX)"
-    AUTHFILE="$XVFB_RUN_TMPDIR/Xauthority"
-fi
-
-MCOOKIE=$(mcookie)
-XAUTHORITY=$AUTHFILE xauth source - << EOX >>"$ERRORFILE" 2>&1
-add :$SERVERNUM $XAUTHPROTO $MCOOKIE
-EOX
-
-XAUTHORITY=$AUTHFILE Xvfb ":$SERVERNUM" $XVFBARGS $LISTENTCP >>"$ERRORFILE" 2>&1 &
-XVFBPID=$!
-sleep "$STARTWAIT"
-
-set +e
-DISPLAY=:$SERVERNUM XAUTHORITY=$AUTHFILE "$@"
-RETVAL=$?
-set -e
-
-kill $XVFBPID
-rm -rf "$XVFB_RUN_TMPDIR"
-exit $RETVAL
+# CentOS 10 兼容层：将旧的 xvfb-run 调用转发给新的 xwfb-run
+exec xwfb-run "$@"
 EOF
+    chmod +x /usr/local/bin/xvfb-run
+    echo "xvfb-run 兼容代理创建完成！"
+    
+elif ! command -v xvfb-run &> /dev/null; then
+    # 如果不仅没有 xwfb-run，连原本的 xvfb-run 也不在（例如极度精简的 Ubuntu/Debian）
+    if command -v Xvfb &> /dev/null; then
+        echo "回退机制：系统存在 Xvfb 但无 xvfb-run，正在植入通用包装脚本..."
+        curl -sL https://raw.githubusercontent.com/nexusformat/Xvfb-Run/master/xvfb-run -o /usr/local/bin/xvfb-run || true
         chmod +x /usr/local/bin/xvfb-run
-        sed -i 's/\r$//' /usr/local/bin/xvfb-run
-        echo "xvfb-run 脚本修复完成 (已自动优化换行符)！"
+    else
+        echo "警告：系统中既没有 Xvfb 也没有 Wayland，无头模式可能无法运行！"
     fi
 fi
 
