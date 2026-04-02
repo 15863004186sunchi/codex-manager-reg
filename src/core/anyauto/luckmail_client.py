@@ -17,7 +17,7 @@ class LuckMailEmailService:
             return {"email": self.current_email, "service_id": "luckmail"}
         return None
 
-    def wait_for_verification_code(self, email, timeout=120):
+    def get_verification_code(self, email, email_id=None, timeout=120, otp_sent_at=None):
         """兼容 AnyAutoRegistrationEngine 的取码接口"""
         token = self.email_token_map.get(email)
         if not token:
