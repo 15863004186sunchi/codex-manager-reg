@@ -9,8 +9,8 @@ class ImapEmailService:
         self.credentials_map = {} # email -> password
         self.current_email = None
 
-    def register_credentials(self, email_addr, password):
-        self.credentials_map[email_addr] = password
+    def register_credentials(self, email, password):
+        self.credentials_map[email] = password
 
     def create_email(self):
         """兼容 AnyAutoRegistrationEngine 的取号接口"""
@@ -18,17 +18,17 @@ class ImapEmailService:
             return {"email": self.current_email, "service_id": "imap_mail"}
         return None
 
-    def get_verification_code(self, email_addr, email_id=None, timeout=60, otp_sent_at=None):
-        password = self.credentials_map.get(email_addr)
+    def get_verification_code(self, email, email_id=None, timeout=60, otp_sent_at=None):
+        password = self.credentials_map.get(email)
         if not password:
-            print(f"[IMAP] 未找到邮箱 {email_addr} 关联的密码！")
+            print(f"[IMAP] 未找到邮箱 {email} 关联的密码！")
             return None
         
-        print(f"[IMAP] ✨ 正在连接 {self.imap_server} 读取 {email_addr} 的邮件...")
+        print(f"[IMAP] ✨ 正在连接 {self.imap_server} 读取 {email} 的邮件...")
         try:
             # 登录 IMAP
             mail = imaplib.IMAP4_SSL(self.imap_server, self.imap_port)
-            mail.login(email_addr, password)
+            mail.login(email, password)
             mail.select("INBOX")
 
             # 搜索来自 OpenAI 的邮件
