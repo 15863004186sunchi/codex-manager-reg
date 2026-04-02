@@ -31,10 +31,16 @@ else
     echo "❌ 无法识别的包管理器，请手动安装: curl, git, xvfb, python3"
 fi
 
-# 特别处理 CentOS 下 xvfb-run 脚本缺失的问题 (RHEL/CentOS 常见坑)
+# 特别处理 CentOS 下 xvfb-run 脚本缺失/损坏的问题 (RHEL/CentOS 常见坑)
+# 如果文件存在但包含 404 错误（之前的失败尝试），先清理它
+if [ -f /usr/local/bin/xvfb-run ] && grep -q "404" /usr/local/bin/xvfb-run; then
+    echo "发现损坏的 xvfb-run 脚本，正在清理..."
+    rm -f /usr/local/bin/xvfb-run
+fi
+
 if ! command -v xvfb-run &> /dev/null; then
     if command -v Xvfb &> /dev/null; then
-        echo "检测到 Xvfb 已安装但缺少 xvfb-run 脚本，正在植入通用包装脚本..."
+        echo "正在植入通用 xvfb-run 包装脚本..."
         cat <<'EOF' > /usr/local/bin/xvfb-run
 #!/bin/bash
 # Build-Depends on xvfb, xbase-clients, and xfonts-base.
