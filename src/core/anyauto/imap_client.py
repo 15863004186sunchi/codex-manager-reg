@@ -61,31 +61,34 @@ class ImapEmailService:
                     mail.login(login_user, login_password)
                     mail.select("INBOX")
                     
-                    # 搜索逻辑：如果是主账号模式，搜索发给该特定别名的邮件；否则全搜
-                    if self.master_email:
-                        # 使用 TO 搜索特定别名，不再强制 FROM
-                        search_criteria = f'(TO "{email_normalized}")'
-                    else:
-                        # 直连模式下，直接搜 FROM openai 的即可
-                        search_criteria = '(FROM "openai.com")'
+                    # 搜索逻辑：搜索来自 openai.com 的邮件，然后在代码里过滤 TO 地址 (避免 IMAP TO 搜索不稳定的问题)
+                    search_criteria = '(FROM "openai.com")'
                     
                     status, messages = mail.search(None, search_criteria)
                     
                     if status == "OK" and messages[0]:
                         mail_ids = messages[0].split()
                         if mail_ids:
-                            # 获取最新的一封邮件
-                            latest_email_id = mail_ids[-1]
-                            status, msg_data = mail.fetch(latest_email_id, '(RFC822)')
-                            
-                            for response_part in msg_data:
-                                if isinstance(response_part, tuple):
-                                    msg = email.message_from_bytes(response_part[1])
-                                    
-                                    # 检查发件人是否包含 openai.com (更稳健的过滤)
-                                    from_addr = str(msg.get("From", "")).lower()
-                                    if "openai.com" not in from_addr:
-                                        continue
+                            # 按照最新邮件倒序排列检查，提高命中率
+                            for latest_email_id in reversed(mail_ids):
+                                status, msg_data = mail.fetch(latest_email_id, '(RFC822)')
+                                
+                                for response_part in msg_data:
+                                    if isinstance(response_part, tuple):
+                                        msg = email.message_from_bytes(response_part[1])
+                                        
+                                        # 1. 严格过滤发件人域名
+                                        from_addr = str(msg.get("From", "")).lower()
+                                        if "openai.com" not in from_addr:
+                                            continue
+                                        
+                                        # 2. 匹配收件人 (支持 Catch-all 场景)
+                                        to_addr_raw = str(msg.get("To", "")).lower()
+                                        if email_normalized not in to_addr_raw:
+                                            # 如果在 TO 里没搜到，再查一下 Delivered-To (部分转发邮件会改写这个头)
+                                            delivered_to = str(msg.get("Delivered-To", "")).lower()
+                                            if email_normalized not in delivered_to:
+                                                continue
                                     
                                     # 提取正文
                                     body = ""
