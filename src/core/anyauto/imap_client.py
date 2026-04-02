@@ -61,11 +61,13 @@ class ImapEmailService:
                     mail.login(login_user, login_password)
                     mail.select("INBOX")
                     
-                    # 搜索逻辑：如果是主账号模式，搜索发给该特定别名的邮件；否则直接搜 noreply 即可
+                    # 搜索逻辑：如果是主账号模式，搜索发给该特定别名的邮件；否则全搜
                     if self.master_email:
-                        search_criteria = f'(TO "{email_normalized}" FROM "noreply@tm.openai.com")'
+                        # 使用 TO 搜索特定别名，不再强制 FROM
+                        search_criteria = f'(TO "{email_normalized}")'
                     else:
-                        search_criteria = '(FROM "noreply@tm.openai.com")'
+                        # 直连模式下，直接搜 FROM openai 的即可
+                        search_criteria = '(FROM "openai.com")'
                     
                     status, messages = mail.search(None, search_criteria)
                     
@@ -79,6 +81,11 @@ class ImapEmailService:
                             for response_part in msg_data:
                                 if isinstance(response_part, tuple):
                                     msg = email.message_from_bytes(response_part[1])
+                                    
+                                    # 检查发件人是否包含 openai.com (更稳健的过滤)
+                                    from_addr = str(msg.get("From", "")).lower()
+                                    if "openai.com" not in from_addr:
+                                        continue
                                     
                                     # 提取正文
                                     body = ""

@@ -211,14 +211,18 @@ def main():
             # 从代理池中随机捞取一个给当前流程
             if proxy_pool:
                 engine.proxy_url = random.choice(proxy_pool)
+            
+            # [IMPORTANT] Ensure engine uses the same password we generated/parsed
+            if mode in ["imap", "custom_domain"]:
+                engine.password = secret
                 
             result = engine.run()
             
             if result.get("success"):
                 print(f"🎉 注册成功！ {email}")
                 success_count += 1
-                # 存档并上传
-                save_token_info(email, token, result)
+                # 存档并上传 (使用 engine.password 确保读取的是实际成功的那个)
+                save_token_info(email, engine.password or secret, result)
             else:
                 print(f"❌ 注册失败: {result.get('error_message', 'Unknown Error')}")
                 
