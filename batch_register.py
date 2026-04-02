@@ -1,5 +1,6 @@
 import os
 import sys
+import random
 import logging
 import time
 
@@ -140,6 +141,8 @@ def main():
     mode = args.mode
     filename = args.filename
 
+    # 处理账号源
+    accounts = []
     if mode == "custom_domain":
         # 模式：自建域名，自动生成随机前缀和随机强密码
         for _ in range(args.count):
