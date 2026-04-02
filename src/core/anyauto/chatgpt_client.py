@@ -786,11 +786,15 @@ class ChatGPTClient:
     def _playwright_hybrid_flow(self, email, password, first_name, last_name, birthdate, skymail_client, auth_url):
         """混合驱动：使用 Playwright 完成高风险注册流程（带清空缓存策略），完成后回收 Session Token。"""
         import tempfile
+        import sys
         from playwright.sync_api import sync_playwright
+        
+        # 调试环境：记录 sys.path 确认为何 uv 环境下 import 失败
         try:
             from playwright_stealth import stealth_sync
         except ImportError:
-            self._log("⚠️ 未检测到 playwright-stealth 库，指纹隐藏可能不完整。")
+            self._log(f"⚠️ 未检测到 playwright-stealth 库! sys.executable: {sys.executable}")
+            # self._log(f"sys.path: {sys.path[:5]} ...")
             stealth_sync = None
 
         self._log("🌟 启动 Playwright Hybrid Flow (Headful + Stealth)...")
@@ -860,11 +864,23 @@ class ChatGPTClient:
                         # 等待元素出现
                         page.wait_for_selector(pwd_input_sel, timeout=30000)
                         self._human_type(page, pwd_input_sel, password)
+                        
+                        # 重点：点击继续并验证页面是否跳转 (即验证码页面是否出现)
+                        self._log("🖱️ [Playwright] 点击 Continue 并观察页面变动...")
                         self._human_click(page, "button[type='submit'], button:has-text('Continue')")
-                        # 增加等候时长，防止网络不佳导致转义太慢
+                        
+                        # 等待验证码页面或者个人资料页面出现 (如果是登录流会直接过，如果是注册流会进 OTP)
+                        # 我们等待 input[inputmode='numeric'] 或者输入框消失
+                        try:
+                            page.wait_for_function("() => !document.querySelector('input[type=\"password\"]') || document.querySelector('input[inputmode=\"numeric\"]')", timeout=20000)
+                        except Exception:
+                            self._log("⚠️ 密码提交后页面未显著跳转，可能存在隐藏验证码或网络拥堵。")
+                        
                         page.wait_for_timeout(5000)
                     except Exception as e:
-                        return False, f"Playwright 阶段填写密码失败: {e}"
+                        current_url = page.url
+                        page.screenshot(path="registration_error_pwd.png")
+                        return False, f"Playwright 阶段填写密码失败 (URL: {current_url}): {e}"
                     
                     # 2. 获取并填写验证码
                     self._log("📧 [Playwright] 等待并获取邮件验证码...")
@@ -873,14 +889,15 @@ class ChatGPTClient:
                         return False, "未收到邮箱验证码，流程终止！"
                     
                     try:
-                        self._log(f"🔑 [Playwright] 填入验证码: {otp_code}")
+                        self._log(f"🔑 [Playwright] 正在确认验证码输入框 (URL: {page.url})...")
                         # 验证码输入框等待设置为 60 秒，以对抗超慢代理或二次验证
                         page.locator("input[inputmode='numeric']").first.wait_for(timeout=60000)
                         # 这里直接使用 human_type 在第一个输入框上，通常会自动跳转
                         self._human_type(page, "input[inputmode='numeric']", otp_code, delay_range=(0.1, 0.3))
                         page.wait_for_timeout(5000)
                     except Exception as e:
-                        return False, f"Playwright 阶段填写验证码失败: {e}"
+                        page.screenshot(path="registration_error_otp.png")
+                        return False, f"Playwright 阶段填写验证码失败 (URL: {page.url}): {e}"
                     
                     # 3. 填写个人资料 (绕过 Stage 2 风控，带 so-token)
                     try:
