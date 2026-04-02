@@ -10,7 +10,7 @@ class ImapEmailService:
         self.current_email = None
 
     def register_credentials(self, email, password):
-        self.credentials_map[email] = password
+        self.credentials_map[email.lower()] = password
 
     def create_email(self):
         """兼容 AnyAutoRegistrationEngine 的取号接口"""
@@ -19,7 +19,8 @@ class ImapEmailService:
         return None
 
     def get_verification_code(self, email, email_id=None, timeout=60, otp_sent_at=None):
-        password = self.credentials_map.get(email)
+        email_normalized = email.lower()
+        password = self.credentials_map.get(email_normalized)
         if not password:
             print(f"[IMAP] 未找到邮箱 {email} 关联的密码！")
             return None
