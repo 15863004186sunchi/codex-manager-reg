@@ -140,14 +140,14 @@ def main():
     mode = args.mode
     filename = args.filename
 
-    # 处理账号源
-    accounts = []
     if mode == "custom_domain":
-        # 模式：自建域名，自动生成随机前缀
+        # 模式：自建域名，自动生成随机前缀和随机强密码
         for _ in range(args.count):
             random_prefix = "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=8))
             email = f"user_{random_prefix}@{args.domain}"
-            accounts.append((email, "RANDOM_PW_UNUSE")) # 自建模式下不需要预设密码
+            # 为 OpenAI 账号生成一个强密码 (用于表单填写)
+            password = "".join(random.choices("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#", k=12))
+            accounts.append((email, password)) 
     else:
         # 模式：从文件读取
         if not filename:
@@ -188,7 +188,7 @@ def main():
         print("-" * 50)
         
         # 根据模式注册凭证
-        if mode == "imap":
+        if mode == "imap" or mode == "custom_domain":
             base_email_service.register_credentials(email, secret)
         else:
             base_email_service.register_token(email, secret)
