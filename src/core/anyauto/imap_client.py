@@ -4,12 +4,22 @@ import re
 
 class ImapEmailService:
     def __init__(self, imap_port=993):
-        # 预设多个可能的微软 IMAP 服务器地址，增加兼容性
-        self.imap_servers = ["outlook.office365.com", "imap-mail.outlook.com", "imap.glbdns2.microsoft.com"]
+        # 预设多个可能的服务器地址
+        self.imap_servers = ["imap.gmail.com", "outlook.office365.com", "imap-mail.outlook.com"]
         self.imap_port = imap_port
         self.credentials_map = {} # email -> password
         self.current_email = None
+        
+        # [NEW] Master Account Mode (用于 Catch-all)
+        self.master_email = None
+        self.master_password = None
 
+    def set_master_account(self, email, password):
+        """设置统一的中转接收邮箱（用于 Cloudflare 转发等场景）"""
+        self.master_email = email
+        self.master_password = password
+        print(f"[IMAP] 🏁 已开启统一中转模式: 所有邮件将从中转站 {email} 读取。")
+        
     def register_credentials(self, email, password):
         self.credentials_map[email.lower()] = password
 
@@ -21,24 +31,36 @@ class ImapEmailService:
 
     def get_verification_code(self, email, email_id=None, timeout=60, otp_sent_at=None):
         email_normalized = email.lower()
-        password = self.credentials_map.get(email_normalized)
-        if not password:
-            print(f"[IMAP] ❌ 严重错误: 未在内存中找到邮箱 {email_normalized} 的登录密码！请检查导入流程。")
+        
+        # 确定登录身份：如果有主账号则用主账号，否则查找该邮箱匹配的密码
+        login_user = self.master_email if self.master_email else email_normalized
+        login_password = self.master_password if self.master_password else self.credentials_map.get(email_normalized)
+        
+        if not login_password:
+            print(f"[IMAP] ❌ 严重错误: 未在内存中找到邮箱 {login_user} 的登录密码！")
             return None
         
-        print(f"[IMAP] ✨ 准备读取 {email_normalized} 的邮件 (使用密码长度: {len(password)})")
+        print(f"[IMAP] ✨ 准备读取邮件 (登录身份: {login_user}, 寻址目标: {email_normalized})")
         
-        # 尝试遍历不同的 IMAP 服务器
-        for server in self.imap_servers:
-            print(f"[IMAP] 正在尝试连接服务器: {server}...")
+        # 尝试遍历不同的 IMAP 服务器 (根据域名自动插队)
+        servers = self.imap_servers.copy()
+        if "gmail.com" in login_user:
+            servers = ["imap.gmail.com"] + [s for s in servers if s != "imap.gmail.com"]
+        
+        for server in servers:
             try:
                 # 登录 IMAP
                 mail = imaplib.IMAP4_SSL(server, self.imap_port, timeout=20)
-                mail.login(email_normalized, password)
+                mail.login(login_user, login_password)
                 mail.select("INBOX")
                 
-                # ... 搜索逻辑保持不变 ...
-                status, messages = mail.search(None, '(FROM "noreply@tm.openai.com")')
+                # 搜索逻辑：如果是主账号模式，搜索发给该特定别名的邮件；否则直接搜 noreply 即可
+                if self.master_email:
+                    search_criteria = f'(TO "{email_normalized}" FROM "noreply@tm.openai.com")'
+                else:
+                    search_criteria = '(FROM "noreply@tm.openai.com")'
+                
+                status, messages = mail.search(None, search_criteria)
                 
                 if status == "OK" and messages[0]:
                     mail_ids = messages[0].split()

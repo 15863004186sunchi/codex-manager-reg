@@ -129,35 +129,54 @@ def parse_accounts_file(filepath):
 
 def main():
     parser = argparse.ArgumentParser(description="OpenAI 批量自动注册工具")
-    parser.add_argument("filename", nargs="?", default="hotmail三次购买200个.txt", help="账号文件路径 (格式: email----password或token)")
-    parser.add_argument("--mode", choices=["imap", "luckmail"], default="imap", help="指定取码模式: imap(直连邮箱密码) 或 luckmail(Token接码)")
+    parser.add_argument("filename", nargs="?", default=None, help="账号文件路径")
+    parser.add_argument("--mode", choices=["imap", "luckmail", "custom_domain"], default="imap", help="指定模式: imap(直连), luckmail(平台), custom_domain(自建域名全收)")
+    parser.add_argument("--master-email", default="", help="Catch-all 模式下的主接收邮箱 (如 Gmail)")
+    parser.add_argument("--master-password", default="", help="主接收邮箱的密码或应用密码")
+    parser.add_argument("--domain", default="flapysun.com", help="自建域名模式下的后缀域名")
+    parser.add_argument("--count", type=int, default=1, help="自建域名模式下要注册的数量")
     args = parser.parse_args()
 
-    filename = args.filename
     mode = args.mode
+    filename = args.filename
+
+    # 处理账号源
+    accounts = []
+    if mode == "custom_domain":
+        # 模式：自建域名，自动生成随机前缀
+        for _ in range(args.count):
+            random_prefix = "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=8))
+            email = f"user_{random_prefix}@{args.domain}"
+            accounts.append((email, "RANDOM_PW_UNUSE")) # 自建模式下不需要预设密码
+    else:
+        # 模式：从文件读取
+        if not filename:
+            filename = "hotmail三次购买200个.txt"
+        
+        if not os.path.exists(filename):
+            print(f"文件不存在: {filename}，退出。")
+            return
+        accounts = parse_accounts_file(filename)
+
+    if not accounts:
+        print("未能加载任何账号信息，退出。")
+        return
 
     print("=" * 60)
     print(f"🚀 OpenAI 批量自动注册工具 (Batch + {mode.upper()} + Hybrid)")
-    print(f"📄 当前模式: {mode} | 读取文件: {filename}")
+    print(f"📄 当前模式: {mode} | 总计任务: {len(accounts)}")
+    if mode == "custom_domain":
+        print(f"📮 中转邮箱: {args.master_email} | 后缀域名: {args.domain}")
     print("=" * 60)
 
-    if not os.path.exists(filename):
-        print(f"文件不存在: {filename}，退出。")
-        return
-
-    accounts = parse_accounts_file(filename)
-    if not accounts:
-        print("未从文件中解析到符合账号格式（email----password/token）的记录！退出。")
-        return
-
-    print(f"成功加载 {len(accounts)} 个邮箱账号！\n")
-
-    # 构建代理池
+    # 加载代理池
     proxy_pool = load_proxy_pool(GLOBAL_PROXY)
 
     # 配置相应的支持服务
-    if mode == "imap":
+    if mode == "imap" or mode == "custom_domain":
         base_email_service = ImapEmailService()
+        if mode == "custom_domain" and args.master_email and args.master_password:
+            base_email_service.set_master_account(args.master_email, args.master_password)
     else:
         base_email_service = LuckMailEmailService(base_url="https://api.luckmail.net", api_key="")
     
