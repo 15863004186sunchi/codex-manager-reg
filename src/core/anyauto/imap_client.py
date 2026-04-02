@@ -45,12 +45,16 @@ class ImapEmailService:
         
         start_time = time.time()
         while time.time() - start_time < timeout:
-            # 尝试遍历不同的 IMAP 服务器 (根据域名自动插队)
-            servers = self.imap_servers.copy()
+            # 确定服务器列表：根据登录后缀锁定服务器，避免乱试导致的报错
             if "gmail.com" in login_user:
-                servers = ["imap.gmail.com"] + [s for s in servers if s != "imap.gmail.com"]
-            
-            for server in servers:
+                current_servers = ["imap.gmail.com"]
+            elif any(domain in login_user for domain in ["outlook.com", "hotmail.com", "live.com", "msn.com"]):
+                current_servers = ["outlook.office365.com", "imap-mail.outlook.com"]
+            else:
+                # 默认尝试所有 (保持兼容性)
+                current_servers = self.imap_servers
+
+            for server in current_servers:
                 try:
                     # 登录 IMAP
                     mail = imaplib.IMAP4_SSL(server, self.imap_port, timeout=20)
