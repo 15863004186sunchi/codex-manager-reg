@@ -121,7 +121,7 @@ def parse_accounts_file(filepath):
             line = line.strip()
             if not line:
                 continue
-            if "----tok_" in line:
+            if "----" in line:
                 parts = line.split("----")
                 if len(parts) >= 2:
                     accounts.append((parts[0].strip(), parts[1].strip()))
@@ -147,7 +147,7 @@ def main():
 
     accounts = parse_accounts_file(filename)
     if not accounts:
-        print("未从文件中解析到符合 email----tok_ 格式的账号！退出。")
+        print("未从文件中解析到符合账号格式（email----password/token）的记录！退出。")
         return
 
     print(f"成功加载 {len(accounts)} 个邮箱账号！\n")
