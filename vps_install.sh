@@ -111,7 +111,8 @@ rm -rf "$XVFB_RUN_TMPDIR"
 exit $RETVAL
 EOF
         chmod +x /usr/local/bin/xvfb-run
-        echo "xvfb-run 脚本修复完成！"
+        sed -i 's/\r$//' /usr/local/bin/xvfb-run
+        echo "xvfb-run 脚本修复完成 (已自动优化换行符)！"
     fi
 fi
 
