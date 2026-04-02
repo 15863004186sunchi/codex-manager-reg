@@ -13,8 +13,21 @@ echo "============================================="
 
 # 1. 更新系统并安装必要的系统依赖 (Xvfb 用于虚拟屏幕头)
 echo "📦 [1/4] 正在安装系统依赖 (git, xvfb, python 等)..."
-apt-get update -y
-apt-get install -y curl git xvfb python3 python3-pip python3-venv
+if command -v dnf &> /dev/null; then
+    echo "使用 dnf (CentOS/RHEL) 进行安装..."
+    dnf install -y epel-release || true
+    dnf install -y curl git xorg-x11-server-Xvfb python3 python3-pip
+elif command -v yum &> /dev/null; then
+    echo "使用 yum (CentOS 7/8) 进行安装..."
+    yum install -y epel-release || true
+    yum install -y curl git xorg-x11-server-Xvfb python3 python3-pip
+elif command -v apt-get &> /dev/null; then
+    echo "使用 apt-get (Ubuntu/Debian) 进行安装..."
+    apt-get update -y
+    apt-get install -y curl git xvfb python3 python3-pip python3-venv
+else
+    echo "❌ 无法识别的包管理器，请手动安装: curl, git, xvfb, python3"
+fi
 
 # 2. 安装 uv 超级包管理器
 echo "⚡ [2/4] 正在安装或更新 uv 包管理器..."
