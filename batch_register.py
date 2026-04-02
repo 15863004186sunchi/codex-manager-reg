@@ -13,6 +13,15 @@ sys.path.append(os.getcwd())
 
 from src.core.anyauto.register_flow import AnyAutoRegistrationEngine
 from src.core.anyauto.luckmail_client import LuckMailEmailService
+from src.core.upload.cpa_upload import upload_to_cpa
+
+# ==========================================
+# CPA 平台配置 (可选)
+# 如果需要自动上传到 CPA 平台，请设置 ENABLED 为 True 并填写 URL/TOKEN
+# ==========================================
+CPA_ENABLED = False
+CPA_API_URL = ""
+CPA_API_TOKEN = ""
 
 # ==========================================
 # 在这里填入你购买的动态住宅代理，或者 Proxy List 下载链接！
@@ -52,6 +61,52 @@ def load_proxy_pool(proxy_input):
             return []
     else:
         return [proxy_input]
+
+def save_token_info(email, password, result):
+    """
+    将注册成功的账号信息保存为 CPA 格式的 JSON 并尝试上传
+    """
+    token_dir = "tokens"
+    if not os.path.exists(token_dir):
+        os.makedirs(token_dir)
+        
+    # 构造 CPA 格式的 JSON (兼容 src/core/upload/cpa_upload.py)
+    token_data = {
+        "type": "codex",
+        "email": email,
+        "password": password,
+        "id_token": result.get("id_token", ""),
+        "account_id": result.get("account_id", ""),
+        "access_token": result.get("access_token", ""),
+        "session_token": result.get("session_token", ""),
+        "refresh_token": result.get("refresh_token", ""),
+        "last_refresh": time.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
+        "metadata": result.get("metadata", {})
+    }
+    
+    file_path = os.path.join(token_dir, f"{email}.json")
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(token_data, f, ensure_ascii=False, indent=2)
+        print(f"📂 成功存档 Token 文件: {file_path}")
+    except Exception as e:
+        print(f"⚠️ 存档 Token 文件失败: {e}")
+
+    # 如果启用了 CPA 上传
+    if CPA_ENABLED and CPA_API_URL and CPA_API_TOKEN:
+        print(f"📡 正在尝试上传到 CPA: {email}...")
+        try:
+            success, msg = upload_to_cpa(
+                token_data=token_data, 
+                api_url=CPA_API_URL, 
+                api_token=CPA_API_TOKEN
+            )
+            if success:
+                print(f"✅ CPA 上传成功！")
+            else:
+                print(f"⚠️ CPA 上传失败: {msg}")
+        except Exception as e:
+            print(f"❌ CPA 上传过程中发生异常: {e}")
 
 def parse_accounts_file(filepath):
     accounts = []
@@ -122,6 +177,8 @@ def main():
             if result.get("success"):
                 print(f"🎉 注册成功！ {email}")
                 success_count += 1
+                # 存档并上传
+                save_token_info(email, token, result)
             else:
                 print(f"❌ 注册失败: {result.get('error_message', 'Unknown Error')}")
                 
