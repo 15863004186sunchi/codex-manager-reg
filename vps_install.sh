@@ -36,10 +36,10 @@ fi
 # 我们使用官方的 xwfb-run (由 xwayland-run 提供) 来代替 xvfb-run
 if command -v xwfb-run &> /dev/null; then
     echo "检测到 xwayland-run 环境，正在建立 xvfb-run 的向后兼容代理脚本..."
-    cat <<'EOF' > /usr/local/bin/xvfb-run
+cat <<'EOF' > /usr/local/bin/xvfb-run
 #!/bin/bash
-# CentOS 10 兼容层：将旧的 xvfb-run 调用转发给新的 xwfb-run
-exec xwfb-run "$@"
+# CentOS 10 兼容层：将旧的 xvfb-run 调用转发给新的 xwfb-run，加上 -- 以防止劫持子命令的参数
+exec xwfb-run -- "$@"
 EOF
     chmod +x /usr/local/bin/xvfb-run
     echo "xvfb-run 兼容代理创建完成！"
