@@ -2,6 +2,8 @@ import imaplib
 import email as email_lib
 import re
 import time
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 
 class ImapEmailService:
     def __init__(self, imap_port=993):
@@ -89,6 +91,22 @@ class ImapEmailService:
                                             delivered_to = str(msg.get("Delivered-To", "")).lower()
                                             if email_normalized not in delivered_to:
                                                 continue
+                                        
+                                        # 3. 时间过滤：确保是本轮发送的新邮件 (允许 1 分钟左右的宽限，防止服务器时钟不准)
+                                        if otp_sent_at:
+                                            date_str = str(msg.get("Date", ""))
+                                            try:
+                                                msg_date = parsedate_to_datetime(date_str)
+                                                msg_ts = msg_date.timestamp()
+                                                
+                                                # 如果邮件时间早于 otp_sent_at 之前 30 秒，则认为是旧邮件 (防止两边时钟微弱偏差)
+                                                if msg_ts < (otp_sent_at - 30):
+                                                    print(f"[IMAP] ⏳ 丢弃旧邮件 (Sent at {msg_date}, Requested at {datetime.fromtimestamp(otp_sent_at)})")
+                                                    continue
+                                            except Exception as e:
+                                                print(f"[IMAP] ⚠️ 无法解析邮件日期: {date_str}, 错误: {e}")
+                                                # 如果解析失败，保守起见继续流程
+                                                pass
                                     
                                     # 提取正文
                                     body = ""

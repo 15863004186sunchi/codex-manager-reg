@@ -858,10 +858,11 @@ class ChatGPTClient:
                         self._log("📝 [Playwright] 准备填写密码...")
                         pwd_input_sel = "input[type='password'], input[name='password']"
                         # 等待元素出现
-                        page.wait_for_selector(pwd_input_sel, timeout=15000)
+                        page.wait_for_selector(pwd_input_sel, timeout=30000)
                         self._human_type(page, pwd_input_sel, password)
                         self._human_click(page, "button[type='submit'], button:has-text('Continue')")
-                        page.wait_for_timeout(3000)
+                        # 增加等候时长，防止网络不佳导致转义太慢
+                        page.wait_for_timeout(5000)
                     except Exception as e:
                         return False, f"Playwright 阶段填写密码失败: {e}"
                     
@@ -873,10 +874,11 @@ class ChatGPTClient:
                     
                     try:
                         self._log(f"🔑 [Playwright] 填入验证码: {otp_code}")
-                        page.locator("input[inputmode='numeric']").first.wait_for(timeout=15000)
+                        # 验证码输入框等待设置为 60 秒，以对抗超慢代理或二次验证
+                        page.locator("input[inputmode='numeric']").first.wait_for(timeout=60000)
                         # 这里直接使用 human_type 在第一个输入框上，通常会自动跳转
                         self._human_type(page, "input[inputmode='numeric']", otp_code, delay_range=(0.1, 0.3))
-                        page.wait_for_timeout(3000)
+                        page.wait_for_timeout(5000)
                     except Exception as e:
                         return False, f"Playwright 阶段填写验证码失败: {e}"
                     
@@ -884,7 +886,7 @@ class ChatGPTClient:
                     try:
                         self._log("👤 [Playwright] 填写个人资料 (Name / Birthdate)...")
                         name_sel = "input[name='name'], input[id='name']"
-                        page.wait_for_selector(name_sel, timeout=15000)
+                        page.wait_for_selector(name_sel, timeout=30000)
                         
                         self._human_type(page, name_sel, f"{first_name} {last_name}")
                         page.wait_for_timeout(1000)
