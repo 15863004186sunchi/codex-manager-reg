@@ -28,7 +28,7 @@ CPA_API_TOKEN = "sunchi"
 # 格式 1: "http://用户名:密码@代理地址:端口" (单节点自动轮换)
 # 格式 2: "https://proxy.webshare.io/api/v2/proxy/list/download/... (提取API链接)
 # ==========================================
-GLOBAL_PROXY = "https://proxy.webshare.io/api/v2/proxy/list/download/ztaythmrvffodojlsdcahpdpxfudlgngtgktycld/AD-AE-AF-AG-AI-AL-AM-AO-AR-AT-AU-AW-AX-AZ-BA-BB-BD-BE-BF-BG-BH-BI-BJ-BM-BN-BO-BQ-BR-BS-BT-BW-BY-BZ-CA-CD-CG-CH-CI-CL-CM-CN-CO-CR-CU-CV-CW-CY-CZ-DJ-DK-DM-DO-DZ-EC-EE-EG-ER-ET-FI-FJ-FM-FO-GA-GB-GD-GE-GF-GG-GH-GI-GL-GM-GN-GP-GQ-GR-GT-GU-GW-GY-HK-HN-HR-HT-HU-ID-IE-IL-IM-IN-IQ-IR-IS-JE-JM-JO-JP-KE-KG-KH-KM-KN-KR-KW-KY-KZ-LA-LB-LC-LI-LK-LR-LS-LT-LU-LV-LY-MA-MC-MD-ME-MF-MG-MH-MK-ML-MM-MN-MO-MP-MQ-MR-MS-MT-MU-MV-MW-MX-MY-MZ-NA-NC-NE-NG-NI-NL-NO-NP-NZ-OM-PA-PE-PF-PG-PH-PK-PL-PR-PS-PT-PW-PY-QA-RE-RO-RS-RU-RW-SA-SB-SC-SD-SE-SG-SH-SI-SK-SL-SM-SN-SO-SR-SS-ST-SV-SX-SY-SZ-TC-TG-TH-TJ-TL-TN-TO-TR-TT-TW-TZ-UA-UG-US-UY-UZ-VC-VE-VG-VI-VN-VU-WS-YE-YT-ZA-ZM-ZW/any/username/backbone/-/?plan_id=13098254"
+GLOBAL_PROXY = "https://proxy.webshare.io/api/v2/proxy/list/download/ztaythmrvffodojlsdcahpdpxfudlgngtgktycld/-/any/username/backbone/-/?plan_id=13098254"
 
 import urllib.request
 import urllib.error
