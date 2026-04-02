@@ -31,6 +31,16 @@ else
     echo "❌ 无法识别的包管理器，请手动安装: curl, git, xvfb, python3"
 fi
 
+# 特别处理 CentOS 下 xvfb-run 脚本缺失的问题 (RHEL/CentOS 常见坑)
+if ! command -v xvfb-run &> /dev/null; then
+    if command -v Xvfb &> /dev/null; then
+        echo "检测到 Xvfb 已安装但缺少 xvfb-run 脚本，正在同步官方脚本..."
+        curl -sL https://raw.githubusercontent.com/nexusformat/Xvfb-Run/master/xvfb-run -o /usr/local/bin/xvfb-run
+        chmod +x /usr/local/bin/xvfb-run
+        echo "xvfb-run 脚本修复完成！"
+    fi
+fi
+
 # 2. 安装 uv 超级包管理器
 echo "⚡ [2/4] 正在安装或更新 uv 包管理器..."
 if ! command -v uv &> /dev/null; then
