@@ -17,7 +17,7 @@ if command -v dnf &> /dev/null; then
     echo "使用 dnf (CentOS/RHEL) 进行安装..."
     dnf install -y epel-release || true
     dnf config-manager --set-enabled crb || true
-    dnf install -y curl git python3 python3-pip
+    dnf install -y curl git python3 python3-pip util-linux xorg-x11-xauth
     dnf install -y --enablerepo=crb --enablerepo=epel xorg-x11-server-Xvfb xvfb || true
 elif command -v yum &> /dev/null; then
     echo "使用 yum (CentOS 7/8) 进行安装..."
@@ -34,8 +34,76 @@ fi
 # 特别处理 CentOS 下 xvfb-run 脚本缺失的问题 (RHEL/CentOS 常见坑)
 if ! command -v xvfb-run &> /dev/null; then
     if command -v Xvfb &> /dev/null; then
-        echo "检测到 Xvfb 已安装但缺少 xvfb-run 脚本，正在同步官方脚本..."
-        curl -sL https://raw.githubusercontent.com/nexusformat/Xvfb-Run/master/xvfb-run -o /usr/local/bin/xvfb-run
+        echo "检测到 Xvfb 已安装但缺少 xvfb-run 脚本，正在植入通用包装脚本..."
+        cat <<'EOF' > /usr/local/bin/xvfb-run
+#!/bin/bash
+# Build-Depends on xvfb, xbase-clients, and xfonts-base.
+set -e
+PROGNAME=xvfb-run
+SERVERNUM=99
+AUTHFILE=""
+ERRORFILE=/dev/null
+STARTWAIT=3
+XVFBARGS="-screen 0 1280x1024x24 -ac +extension GLX +render -noreset"
+LISTENTCP="-nolisten tcp"
+XAUTHPROTO=.
+
+# Find a free server number by looking at .X*-lock files in /tmp.
+find_free_servernum() {
+    i=$SERVERNUM
+    while [ -f /tmp/.X$i-lock ]; do
+        i=$(($i + 1))
+    done
+    echo $i
+}
+
+# Simple parse of command line for common options
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -a|--auto-servernum) SERVERNUM=$(find_free_servernum) ;;
+        -n|--server-num) SERVERNUM="$2"; shift ;;
+        -s|--server-args) XVFBARGS="$2"; shift ;;
+        -w|--wait) STARTWAIT="$2"; shift ;;
+        --) shift; break ;;
+        -*) ;; # skip unknown options
+        *) break ;;
+    esac
+    shift
+done
+
+if [ -z "$*" ]; then
+    echo "Usage: xvfb-run [options] command"
+    exit 2
+fi
+
+if ! command -v xauth >/dev/null; then
+    echo "error: xauth command not found"
+    exit 3
+fi
+
+if [ -z "$AUTHFILE" ]; then
+    XVFB_RUN_TMPDIR="$(mktemp --directory --tmpdir xvfb-run.XXXXXX)"
+    AUTHFILE="$XVFB_RUN_TMPDIR/Xauthority"
+fi
+
+MCOOKIE=$(mcookie)
+XAUTHORITY=$AUTHFILE xauth source - << EOX >>"$ERRORFILE" 2>&1
+add :$SERVERNUM $XAUTHPROTO $MCOOKIE
+EOX
+
+XAUTHORITY=$AUTHFILE Xvfb ":$SERVERNUM" $XVFBARGS $LISTENTCP >>"$ERRORFILE" 2>&1 &
+XVFBPID=$!
+sleep "$STARTWAIT"
+
+set +e
+DISPLAY=:$SERVERNUM XAUTHORITY=$AUTHFILE "$@"
+RETVAL=$?
+set -e
+
+kill $XVFBPID
+rm -rf "$XVFB_RUN_TMPDIR"
+exit $RETVAL
+EOF
         chmod +x /usr/local/bin/xvfb-run
         echo "xvfb-run 脚本修复完成！"
     fi
