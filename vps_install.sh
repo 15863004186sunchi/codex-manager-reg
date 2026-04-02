@@ -16,7 +16,9 @@ echo "📦 [1/4] 正在安装系统依赖 (git, xvfb, python 等)..."
 if command -v dnf &> /dev/null; then
     echo "使用 dnf (CentOS/RHEL) 进行安装..."
     dnf install -y epel-release || true
-    dnf install -y curl git xorg-x11-server-Xvfb python3 python3-pip
+    dnf config-manager --set-enabled crb || true
+    dnf install -y curl git python3 python3-pip
+    dnf install -y --enablerepo=crb --enablerepo=epel xorg-x11-server-Xvfb xvfb || true
 elif command -v yum &> /dev/null; then
     echo "使用 yum (CentOS 7/8) 进行安装..."
     yum install -y epel-release || true
