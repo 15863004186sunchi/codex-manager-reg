@@ -726,7 +726,110 @@ class ChatGPTClient:
         except Exception as e:
             self._log(f"创建异常: {e}")
             return False, str(e)
-    
+    def _playwright_hybrid_flow(self, email, password, first_name, last_name, birthdate, skymail_client, auth_url):
+        """混合驱动：使用 Playwright 完成高风险注册流程（带清空缓存策略），完成后回收 Session Token。"""
+        import tempfile
+        from playwright.sync_api import sync_playwright
+
+        self._log("🌟 启动 Playwright Hybrid Flow (Headful)...")
+        with sync_playwright() as p:
+            # 每次均使用系统临时目录作为上下文，实现彻底清空缓存和旧有登录状态
+            with tempfile.TemporaryDirectory() as temp_dir:
+                browser = p.chromium.launch_persistent_context(
+                    user_data_dir=temp_dir,
+                    headless=False,  # 保持有界面以应对极端风控
+                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+                    user_agent=self.ua,
+                    viewport={"width": 1280, "height": 800}
+                )
+                page = browser.new_page()
+                
+                # 注入关键的 oai-did 确保从协议层传过去的 session 是一致的
+                try:
+                    browser.add_cookies([
+                        {"name": "oai-did", "value": self.device_id, "domain": ".chatgpt.com", "path": "/"},
+                        {"name": "oai-did", "value": self.device_id, "domain": ".openai.com", "path": "/"}
+                    ])
+                except Exception as e:
+                    self._log(f"注入 oai-did Cookie 失败: {e}")
+
+                try:
+                    self._log(f"通过真实浏览器访问授权链接 (auth_url)...")
+                    page.goto(auth_url, wait_until="networkidle")
+
+                    # 如果页面依然要求输入邮箱
+                    try:
+                        email_input = page.locator("input[type='email'], input[name='email'], input[name='username']")
+                        if email_input.is_visible(timeout=3000):
+                            email_input.fill(email)
+                            page.locator("button[type='submit'], button:has-text('Continue')").click()
+                            page.wait_for_load_state("networkidle")
+                    except Exception:
+                        pass
+                    
+                    # 1. 密码填写 (绕过 Stage 1 风控)
+                    try:
+                        self._log("📝 [Playwright] 填写密码...")
+                        pwd_input = page.locator("input[type='password'], input[name='password']")
+                        pwd_input.wait_for(timeout=10000)
+                        pwd_input.fill(password)
+                        page.locator("button[type='submit'], button:has-text('Continue')").click()
+                    except Exception as e:
+                        return False, f"Playwright 阶段填写密码失败: {e}"
+                    
+                    # 2. 获取并填写验证码
+                    self._log("📧 [Playwright] 等待并获取邮件验证码...")
+                    otp_code = skymail_client.wait_for_verification_code(email, timeout=90)
+                    if not otp_code:
+                        return False, "未收到邮箱验证码，流程终止！"
+                    
+                    try:
+                        self._log(f"🔑 [Playwright] 填入验证码: {otp_code}")
+                        page.locator("input[inputmode='numeric']").first.wait_for(timeout=15000)
+                        inputs = page.locator("input[inputmode='numeric']").all()
+                        if len(inputs) == 6:
+                            for idx, char in enumerate(otp_code):
+                                inputs[idx].fill(char)
+                        else:
+                            page.locator("input[inputmode='numeric']").fill(otp_code)
+                    except Exception as e:
+                        return False, f"Playwright 阶段填写验证码失败: {e}"
+                    
+                    # 3. 填写个人资料 (绕过 Stage 2 风控，带 so-token)
+                    try:
+                        self._log("👤 [Playwright] 填写个人资料 (Name / Birthdate)...")
+                        name_input = page.locator("input[name='name'], input[id='name']")
+                        name_input.wait_for(timeout=15000)
+                        name_input.fill(f"{first_name} {last_name}")
+                        page.locator("input[name='birthday'], input[id='birthday'], input[name='birthdate']").fill(birthdate)
+                        page.locator("button[type='submit'], button:has-text('Agree')").click()
+                    except Exception as e:
+                        self._log(f"填写个人资料超时或跳过: {e}")
+                    
+                    # 4. 等待成功重定向与 Session 获取
+                    self._log("⏳ [Playwright] 等待重定向至 chatgpt.com 以收取战利品...")
+                    try:
+                        page.wait_for_url("https://chatgpt.com/**", timeout=30000)
+                    except Exception:
+                        pass
+                    
+                    # 将 Playwright 中的有效 Cookie 传回给当前的对象会话
+                    cookies = browser.cookies()
+                    found_auth = False
+                    for c in cookies:
+                        # 对于 httpx / curl_cffi，这里设置 domain 的方式：
+                        if c["name"] == "__Secure-next-auth.session-token":
+                            self.session.cookies.set(c["name"], c["value"], domain=c["domain"])
+                            found_auth = True
+                    
+                    if found_auth:
+                        self._log("✅ [Playwright] 成功萃取 __Secure-next-auth.session-token！")
+                        return True, "注册成功 (Hybrid)"
+                    else:
+                        return False, "未能抓取到 next-auth 会话令牌，请检查页面是否成功跳转。"
+                finally:
+                    browser.close()
+
     def register_complete_flow(self, email, password, first_name, last_name, birthdate, skymail_client):
         """
         完整的注册流程（基于原版 run_register 方法）
@@ -772,6 +875,13 @@ class ChatGPTClient:
                 if auth_attempt < max_auth_attempts - 1:
                     continue
                 return False, "提交邮箱失败"
+
+            # 【核心分流点】混合模式下，在此处接管 Playwright
+            if self.browser_mode == "hybrid":
+                self._log("🔧 当前模式为 Hybrid，将启用 Playwright 接管 Sentinel 风控节点。")
+                return self._playwright_hybrid_flow(
+                    email, password, first_name, last_name, birthdate, skymail_client, auth_url
+                )
 
             # 4. 访问 authorize URL（关键步骤！）
             final_url = self.authorize(auth_url)

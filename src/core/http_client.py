@@ -110,10 +110,23 @@ class HTTPClient:
         if self.proxies and "proxies" not in kwargs:
             kwargs["proxies"] = self.proxies
 
+        # 流量追踪记录器
+        import os
+        enable_trace = os.environ.get("TRAFFIC_TRACE") == "1"
+        trace_file = "data/traffic_trace.json"
+
         last_exception = None
         for attempt in range(self.config.max_retries):
             try:
+                # 记录请求
+                if enable_trace:
+                    self._log_request(method, url, **kwargs)
+
                 response = self.session.request(method, url, **kwargs)
+
+                # 记录响应
+                if enable_trace:
+                    self._log_response(response)
 
                 # 检查响应状态码
                 if response.status_code >= 400:
@@ -143,6 +156,41 @@ class HTTPClient:
         raise HTTPClientError(
             f"请求失败，最大重试次数已达: {method} {url} - {last_exception}"
         )
+
+    def _log_request(self, method: str, url: str, **kwargs):
+        """记录请求到 JSON 文件"""
+        try:
+            os.makedirs("data", exist_ok=True)
+            entry = {
+                "timestamp": time.time(),
+                "type": "request",
+                "method": method,
+                "url": url,
+                "headers": dict(kwargs.get("headers", {})),
+                "data": str(kwargs.get("data", "")) if kwargs.get("data") else None,
+                "json": kwargs.get("json")
+            }
+            with open("data/traffic_trace.json", "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception as e:
+            logger.error(f"记录请求失败: {e}")
+
+    def _log_response(self, response: Response):
+        """记录响应到 JSON 文件"""
+        try:
+            entry = {
+                "timestamp": time.time(),
+                "type": "response",
+                "url": response.url,
+                "status_code": response.status_code,
+                "headers": dict(response.headers),
+                "text": response.text[:2000] if response.text else "" # 避免文件过大
+            }
+            with open("data/traffic_trace.json", "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception as e:
+            logger.error(f"记录响应失败: {e}")
+
 
     def get(self, url: str, **kwargs) -> Response:
         """发送 GET 请求"""
