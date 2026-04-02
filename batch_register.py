@@ -70,19 +70,25 @@ def save_token_info(email, password, result):
     if not os.path.exists(token_dir):
         os.makedirs(token_dir)
         
-    # 构造 CPA 格式的 JSON (兼容 src/core/upload/cpa_upload.py)
+    # 构造 CPA 格式的 JSON (严格对齐 src/core/upload/cpa_upload.py 的 generate_token_json)
+    # 同时也保留 session_token，因为 Codex 类型通常需要此项
+    metadata = result.get("metadata", {})
+    
     token_data = {
         "type": "codex",
         "email": email,
-        "password": password,
+        "password": password, # 原始密码，供参考
+        "expired": metadata.get("expires", ""), 
         "id_token": result.get("id_token", ""),
         "account_id": result.get("account_id", ""),
         "access_token": result.get("access_token", ""),
-        "session_token": result.get("session_token", ""),
+        "session_token": result.get("session_token", ""), # 重要：Session 复用流的核心
         "refresh_token": result.get("refresh_token", ""),
         "last_refresh": time.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
-        "metadata": result.get("metadata", {})
     }
+    
+    # 也可以把完整的 metadata 挂载进去，不影响主要字段解析
+    token_data["metadata"] = metadata
     
     file_path = os.path.join(token_dir, f"{email}.json")
     try:
