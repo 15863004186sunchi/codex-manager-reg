@@ -112,6 +112,62 @@ class ChatGPTClient:
         # 设置 oai-did cookie
         seed_oai_device_cookie(self.session, self.device_id)
         self.last_registration_state = FlowState()
+
+    # ==========================================
+    # 拟人化行为模拟 (Behavioral Simulation)
+    # ==========================================
+    
+    def _bezier_curve(self, p0, p1, p2, p3, t):
+        """计算三阶贝塞尔曲线上的点"""
+        x = (1-t)**3 * p0[0] + 3*(1-t)**2 * t * p1[0] + 3*(1-t) * t**2 * p2[0] + t**3 * p3[0]
+        y = (1-t)**3 * p0[1] + 3*(1-t)**2 * t * p1[1] + 3*(1-t) * t**2 * p2[1] + t**3 * p3[1]
+        return x, y
+
+    def _human_move_mouse(self, page, target_x, target_y, steps=15):
+        """模拟人类带抖动的鼠标移动轨迹"""
+        # 获取当前位置 (如果无法获取，则从随机位置开始)
+        current_x, current_y = random.randint(0, 100), random.randint(0, 100)
+        
+        # 随机控制点以生成曲线
+        p0 = (current_x, current_y)
+        p3 = (target_x, target_y)
+        p1 = (current_x + random.randint(-100, 100), current_y + random.randint(-100, 100))
+        p2 = (target_x + random.randint(-100, 100), target_y + random.randint(-100, 100))
+        
+        for i in range(steps + 1):
+            t = i / steps
+            x, y = self._bezier_curve(p0, p1, p2, p3, t)
+            # 加入微小抖动
+            x += random.uniform(-1, 1)
+            y += random.uniform(-1, 1)
+            page.mouse.move(x, y)
+            time.sleep(random.uniform(0.01, 0.03))
+
+    def _human_click(self, page, selector, timeout=10000):
+        """先移动到目标再点击，模拟真人"""
+        locator = page.locator(selector).first
+        locator.wait_for(state="visible", timeout=timeout)
+        
+        # 获取元素中心坐标
+        box = locator.bounding_box()
+        if box:
+            center_x = box["x"] + box["width"] / 2
+            center_y = box["y"] + box["height"] / 2
+            
+            self._human_move_mouse(page, center_x, center_y)
+            time.sleep(random.uniform(0.1, 0.3))
+            locator.click()
+            self._log(f"🖱️ [Human] 点击了元素: {selector}")
+        else:
+            locator.click()
+
+    def _human_type(self, page, selector, text, delay_range=(0.05, 0.2)):
+        """模拟人手敲击键盘，带有随机延迟"""
+        page.locator(selector).first.click()
+        for char in text:
+            page.keyboard.type(char)
+            time.sleep(random.uniform(*delay_range))
+        self._log(f"⌨️ [Human] 完成内容录入: {'*' * len(text)}")
     
     def _log(self, msg):
         """输出日志"""
