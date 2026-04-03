@@ -171,24 +171,52 @@ class ChatGPTClient:
             self._log(f"⚠️ [Human] [Clicking] 无法获取BoundingBox，尝试 Force Click: {selector if isinstance(selector, str) else 'Locator'}")
             locator.click(force=True)
 
-    def _human_type(self, page, selector, text, delay_range=(0.05, 0.2)):
-        """模拟人手敲击键盘，带有随机延迟 (兼容 string 或 locator，增加强制聚焦绕过遮挡)"""
+    def _human_type(self, page, selector, text, delay_range=(0.08, 0.25)):
+        """模拟人手敲击键盘，带有随机延迟和'思考时间' (模拟真实人类节奏)"""
         if isinstance(selector, str):
             locator = page.locator(selector).first
         else:
-            locator = selector # 假设已是 Locator
+            locator = selector
             
         try:
-            # 增加 force=True 绕过 react-aria 等标签遮挡导致的 click 失败
             locator.click(force=True, timeout=5000)
-            for char in text:
+            for i, char in enumerate(text):
                 page.keyboard.type(char)
+                # 随机波动基础延迟
                 time.sleep(random.uniform(*delay_range))
+                
+                # 模拟“思考”或“手滑”：每隔几个字符可能停顿更久
+                if i > 0 and i % random.randint(3, 7) == 0:
+                    time.sleep(random.uniform(0.3, 0.8))
         except Exception:
             self._log("⚠️ [Human] 模拟点击/输入遭遇遮挡或超时，尝试降级至 Playwright 原生 Fill...")
             locator.fill(text, force=True)
             
         self._log(f"⌨️ [Human] 完成内容录入: {'*' * len(text)}")
+
+    def _wait_for_challenge(self, page, timeout=30):
+        """检测并等待 Cloudflare / Sentinel 挑战，避免盲目探测导致封禁"""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            # 1. 检测是否有 Oops/Try again
+            if "Oops" in page.title() or page.locator("button:has-text('Try again')").first.is_visible():
+                self._log("🛡️ [Challenge] 发现 Oops 页面，进入挑战处理模式...")
+                return "oops"
+                
+            # 2. 检测是否有 Cloudflare Iframe
+            cf_frames = [f for f in page.frames if "cloudflare" in f.url or "challenges" in f.url]
+            if cf_frames:
+                self._log("🛡️ [Challenge] 发现 Cloudflare 验证，静默等待挑战解决...")
+                # 此时不进行任何 DOM 操作，避免被标记为 Headless 控制
+                page.wait_for_timeout(2000)
+                continue
+                
+            # 3. 检测跳转成功 (或由于 Sentinel 成功跳转至邮箱页)
+            if "email-verification" in page.url or "auth.openai.com" not in page.url:
+                return "success"
+                
+            page.wait_for_timeout(1000)
+        return "timeout"
 
     def _inspect_page(self, page, label="[Inspector]"):
         """探测并记录当前页面的 URL/标题/可见元素，用于远程调试"""
@@ -933,34 +961,37 @@ class ChatGPTClient:
                         
                         # 重点：点击继续并验证页面是否跳转 (即验证码页面是否出现)
                         self._log("🖱️ [Playwright] 准备提交密码并观察跳转...")
-                        page.wait_for_timeout(2000) # 模拟思考时间
+                        page.wait_for_timeout(random.randint(2000, 4000)) # 模拟人类思考并决定点击的时间
                         self._human_click(page, "button[type='submit'], button:has-text('Continue')")
                         
                         # 记录当前发送时间，用于后续 IMAP 过滤
                         otp_sent_at = time.time()
                         
-                        # 等待验证码页面或者个人资料页面出现 (如果是登录流会直接过，如果是注册流会进 OTP)
-                        # 我们等待 input[inputmode='numeric'] 或者输入框消失
-                        try:
-                            page.wait_for_function("() => !document.querySelector('input[type=\"password\"]') || document.querySelector('input[inputmode=\"numeric\"]')", timeout=20000)
-                            self._inspect_page(page, "[Stage: Post-Password]")
+                        # 【核心加固】挑战页主动识别
+                        challenge_res = self._wait_for_challenge(page)
+                        if challenge_res == "oops":
+                            self._log("⚠️ 发现 OpenAI 'Oops' 错误页面，尝试点击 'Try again' 并重置状态...")
+                            try_again = page.locator("button:has-text('Try again')").first
+                            if try_again.is_visible():
+                                self._human_click(page, try_again)
+                                page.wait_for_timeout(5000)
+                                # 点击后再次等待挑战解决或是跳转
+                                self._wait_for_challenge(page)
                             
-                            # 【核心加固】处理 Oops 错误页面 (通常发生在高风险 IP 或提交过快)
-                            if "Oops" in page.title() or page.locator("button:has-text('Try again')").first.is_visible():
-                                self._log("⚠️ 发现 OpenAI 'Oops' 错误页面，尝试点击 'Try again'...")
-                                try_again = page.locator("button:has-text('Try again')").first
-                                if try_again.is_visible():
-                                    self._human_click(page, try_again)
-                                    page.wait_for_timeout(5000)
-                                    # 如果点击后 URL 没变，尝试手动跳转到验证码输入页 (因为验证码通常已经发出了)
-                                    if "Oops" in page.title() or "password" in page.url:
-                                        self._log("⚡ Oops 页面点击无效，尝试强制跳转到验证码校验页...")
-                                        page.goto(f"{self.AUTH}/email-verification", timeout=30000)
-                                        page.wait_for_timeout(3000)
-                        except Exception:
-                            self._log("⚠️ 密码提交后页面未显著跳转，可能存在隐藏验证码或网络拥堵。")
+                            # 如果依然没跳转，兜底强制去邮箱页
+                            if "email-verification" not in page.url:
+                                self._log("⚡ Oops 页面处理超时/无效，尝试强制跳转到验证码校验页...")
+                                page.goto(f"{self.AUTH}/email-verification", timeout=30000, wait_until="domcontentloaded")
+                                page.wait_for_timeout(3000)
                         
-                        page.wait_for_timeout(5000)
+                        # 等待验证码页面或者个人资料页面出现
+                        try:
+                            page.wait_for_url("**/email-verification**", timeout=20000)
+                            self._inspect_page(page, "[Stage: Post-Password]")
+                        except Exception:
+                            self._log(f"⚠️ 密码提交后未跳转至邮箱验证页，当前 URL: {page.url}")
+                        
+                        page.wait_for_timeout(random.randint(3000, 6000))
                     except Exception as e:
                         current_url = page.url
                         page.screenshot(path="registration_error_pwd.png")
