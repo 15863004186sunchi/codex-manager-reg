@@ -148,8 +148,12 @@ class ChatGPTClient:
             time.sleep(random.uniform(0.01, 0.03))
 
     def _human_click(self, page, selector, timeout=10000):
-        """先移动到目标再点击，模拟真人"""
-        locator = page.locator(selector).first
+        """先移动到目标再点击，模拟真人 (兼容 string 或 locator)"""
+        if isinstance(selector, str):
+            locator = page.locator(selector).first
+        else:
+            locator = selector # 假设已是 Locator
+            
         locator.wait_for(state="visible", timeout=timeout)
         
         # 获取元素中心坐标
@@ -161,7 +165,7 @@ class ChatGPTClient:
             self._human_move_mouse(page, center_x, center_y)
             time.sleep(random.uniform(0.1, 0.3))
             locator.click(force=True)
-            self._log(f"🖱️ [Human] 点击了元素: {selector}")
+            self._log(f"🖱️ [Human] 点击了元素: {selector if isinstance(selector, str) else 'Locator'}")
         else:
             locator.click(force=True)
 
@@ -962,8 +966,9 @@ class ChatGPTClient:
                                 self._log("✅ 已到达个人资料填写页面")
                                 break
                             
-                            # 尝试寻找并点击各种“继续/跳过/开始”按钮 (中英双语支持)
+                            # 尝试寻找并点击各种“继续/跳过/开始”按钮 (中两英双语支持)
                             # 涵盖：Continue/继续, Skip/跳过, Next/下一步, Okay/好的, Start/开始, Done/完成, Finish/完成, Agree/同意, Let's go/好的，开始吧
+                            # 注意：双引号内嵌单引号，规避 CSS 解析错误
                             skip_text_sel = 'button:has-text("Continue"), button:has-text("Skip"), button:has-text("Next"), button:has-text("Okay"), button:has-text("Start"), button:has-text("Done"), button:has-text("Finish"), button:has-text("Agree"), button:has-text("Let\'s go"), button:has-text("继续"), button:has-text("跳过"), button:has-text("下一步"), button:has-text("好的"), button:has-text("开始"), button:has-text("完成"), button:has-text("同意"), button:has-text("开始吧"), a:has-text("跳过"), span:has-text("跳过")'
                             
                             skip_btn = page.locator(skip_text_sel).first
@@ -971,6 +976,7 @@ class ChatGPTClient:
                                 self._log(f"⚡ [Onboarding] 发现引导按钮，尝试点击跳过...")
                                 self._human_click(page, skip_btn)
                                 page.wait_for_timeout(3000) # 增加等待时间让 UI 加载
+                                continue # 如果点击成功，重新这一步的探测，可能还有下一个引导
                             else:
                                 self._log("⏳ [Onboarding] 未发现明显引导按钮，尝试滚动页面或等待加载...")
                                 page.mouse.wheel(0, 500) # 模拟向下滚动
