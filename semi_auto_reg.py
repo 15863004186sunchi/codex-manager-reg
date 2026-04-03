@@ -147,6 +147,7 @@ def launch_semi_auto_browser():
                         }
                     }""")
                     
+                    if token_data.get("success"):
                         # Save to file
                         os.makedirs("data", exist_ok=True)
                         timestamp = int(time.time())
