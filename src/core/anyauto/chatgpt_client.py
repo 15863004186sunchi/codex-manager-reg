@@ -1149,21 +1149,21 @@ class ChatGPTClient:
             if not self.visit_homepage():
                 if auth_attempt < max_auth_attempts - 1:
                     continue
-                return False, "访问首页失败"
+                return False, "访问首页失败", None
 
             # 2. 获取 CSRF token
             csrf_token = self.get_csrf_token()
             if not csrf_token:
                 if auth_attempt < max_auth_attempts - 1:
                     continue
-                return False, "获取 CSRF token 失败"
+                return False, "获取 CSRF token 失败", None
 
             # 3. 提交邮箱，获取 authorize URL
             auth_url = self.signin(email, csrf_token)
             if not auth_url:
                 if auth_attempt < max_auth_attempts - 1:
                     continue
-                return False, "提交邮箱失败"
+                return False, "提交邮箱失败", None
 
             # 【核心分流点】混合模式下，在此处接管 Playwright
             if self.browser_mode == "hybrid":
@@ -1177,7 +1177,7 @@ class ChatGPTClient:
             if not final_url:
                 if auth_attempt < max_auth_attempts - 1:
                     continue
-                return False, "Authorize 失败"
+                return False, "Authorize 失败", None
 
             final_path = urlparse(final_url).path
             self._log(f"Authorize → {final_path}")
@@ -1187,7 +1187,7 @@ class ChatGPTClient:
                 self._log(f"检测到 Cloudflare/SPA 中间页，准备重试预授权: {final_url[:160]}...")
                 if auth_attempt < max_auth_attempts - 1:
                     continue
-                return False, f"预授权被拦截: {final_path}"
+                return False, f"预授权被拦截: {final_path}", None
 
             break
         
@@ -1203,20 +1203,20 @@ class ChatGPTClient:
             signature = self._state_signature(state)
             seen_states[signature] = seen_states.get(signature, 0) + 1
             if seen_states[signature] > 2:
-                return False, f"注册状态卡住: {describe_flow_state(state)}"
+                return False, f"注册状态卡住: {describe_flow_state(state)}", None
 
             if self._is_registration_complete_state(state):
                 self.last_registration_state = state
                 self._log("✅ 注册流程完成")
-                return True, "注册成功"
+                return True, "注册成功", {"access_token": self.session.cookies.get("__Secure-next-auth.session-token", domain=".chatgpt.com") or ""}
 
             if self._state_is_password_registration(state):
                 self._log("全新注册流程")
                 if register_submitted:
-                    return False, "注册密码阶段重复进入"
+                    return False, "注册密码阶段重复进入", None
                 success, msg = self.register_user(email, password)
                 if not success:
-                    return False, f"注册失败: {msg}"
+                    return False, f"注册失败: {msg}", None
                 register_submitted = True
                 if not self.send_email_otp():
                     self._log("发送验证码接口返回失败，继续等待邮箱中的验证码...")
@@ -1227,7 +1227,7 @@ class ChatGPTClient:
                 self._log("等待邮箱验证码...")
                 otp_code = skymail_client.wait_for_verification_code(email, timeout=90)
                 if not otp_code:
-                    return False, "未收到验证码"
+                    return False, "未收到验证码", None
 
                 tried_codes = {otp_code}
                 for _ in range(3):
@@ -1248,7 +1248,7 @@ class ChatGPTClient:
                         )
                     )
                     if not is_wrong_code:
-                        return False, f"验证码失败: {next_state}"
+                        return False, f"验证码失败: {next_state}", None
 
                     self._log("验证码疑似过期/错误，尝试获取新验证码...")
                     otp_code = skymail_client.wait_for_verification_code(
@@ -1257,16 +1257,16 @@ class ChatGPTClient:
                         exclude_codes=tried_codes,
                     )
                     if not otp_code:
-                        return False, "未收到新的验证码"
+                        return False, "未收到新的验证码", None
                     tried_codes.add(otp_code)
 
                 if not otp_verified:
-                    return False, "验证码失败: 多次尝试仍无效"
+                    return False, "验证码失败: 多次尝试仍无效", None
                 continue
 
             if self._state_is_about_you(state):
                 if account_created:
-                    return False, "填写信息阶段重复进入"
+                    return False, "填写信息阶段重复进入", None
                 success, next_state = self.create_account(
                     first_name,
                     last_name,
@@ -1274,7 +1274,7 @@ class ChatGPTClient:
                     return_state=True,
                 )
                 if not success:
-                    return False, f"创建账号失败: {next_state}"
+                    return False, f"创建账号失败: {next_state}", None
                 account_created = True
                 state = next_state
                 self.last_registration_state = state
@@ -1286,7 +1286,7 @@ class ChatGPTClient:
                     referer=state.current_url or f"{self.AUTH}/about-you",
                 )
                 if not success:
-                    return False, f"跳转失败: {next_state}"
+                    return False, f"跳转失败: {next_state}", None
                 state = next_state
                 self.last_registration_state = state
                 continue
@@ -1296,6 +1296,6 @@ class ChatGPTClient:
                 state = self._state_from_url(f"{self.AUTH}/create-account/password")
                 continue
 
-            return False, f"未支持的注册状态: {describe_flow_state(state)}"
+            return False, f"未支持的注册状态: {describe_flow_state(state)}", None
 
         return False, "注册状态机超出最大步数"
