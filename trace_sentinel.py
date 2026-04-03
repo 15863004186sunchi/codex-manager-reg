@@ -43,12 +43,8 @@ async def trace_sentinel_flow():
     print("-" * 60)
 
     # 2. Setup Services
-    imap_service = ImapEmailService(
-        host="imap.gmail.com",
-        user=master_email,
-        password=master_pass,
-        port=993
-    )
+    imap_service = ImapEmailService()
+    imap_service.set_master_account(master_email, master_pass)
     
     client = ChatGPTClient(
         email=email_alias,
