@@ -14,7 +14,8 @@ logging.basicConfig(
 sys.path.append(os.getcwd())
 
 import argparse
-from src.core.anyauto.register_flow import AnyAutoRegistrationEngine
+from src.core.anyauto.register_flow import AnyAutoRegistrationEngine, EmailServiceAdapter
+from src.core.anyauto.chatgpt_client import ChatGPTClient
 from src.core.anyauto.imap_client import ImapEmailService
 from src.core.anyauto.luckmail_client import LuckMailEmailService
 from src.core.upload.cpa_upload import upload_to_cpa
@@ -221,42 +222,39 @@ def main():
         # 告诉 service 当前正在处理哪个邮箱
         base_email_service.current_email = email
         
-        # 注意：此处引擎重建！
+        # 注意：此处直接使用 ChatGPTClient，不再通过 Engine 中转，以支持预设账号
         try:
-            engine = AnyAutoRegistrationEngine(
-                email_service=base_email_service,
-                browser_mode="hybrid",
-                callback_logger=lambda m: logging.info(f"[Engine] {m}")
+            client = ChatGPTClient(
+                proxy=random.choice(proxy_pool) if proxy_pool else None,
+                verbose=False,
+                browser_mode="hybrid"
             )
+            client._log = lambda m: logging.info(f"[Engine] {m}")
             
-            # 从代理池中随机捞取一个给当前流程
-            if proxy_pool:
-                engine.proxy_url = random.choice(proxy_pool)
+            # 使用 EmailServiceAdapter 适配器解决 IMAP 轮询与新旧过滤问题
+            skymail_adapter = EmailServiceAdapter(base_email_service, email, None, client._log)
             
-            # [IMPORTANT] Ensure engine uses the same password we generated/parsed
-            if mode in ["imap", "custom_domain"]:
-                engine.password = secret
-                
-            # 使用 hybrid flow 注册
-            birthdate = "1990-01-01"
+            # 直接触发 Hybrid Playwright 流程
+            # 由于是 custom_domain / imap 模式，直接从头注册，auth_url 为 None 即可
             auth_url = None
-            success, result = engine._playwright_hybrid_flow(
+            birthdate = "1990-01-01"
+            
+            success, msg = client.register_complete_flow(
                 email=email,
                 password=secret,
                 first_name=f_name,
                 last_name=l_name,
                 birthdate=birthdate,
-                skymail_client=base_email_service,
-                auth_url=auth_url
+                skymail_client=skymail_adapter
             )
             
             if success:
                 print(f"🎉 注册成功！ {email}")
                 success_count += 1
-                # 存档并上传 (使用 engine.password 确保读取的是实际成功的那个)
-                save_token_info(email, engine.password or secret, result)
+                # 存档并上传
+                save_token_info(email, secret, {"success": True, "msg": msg})
             else:
-                print(f"❌ 注册失败: {result.get('error_message', 'Unknown Error')}")
+                print(f"❌ 注册失败: {msg}")
                 
         except Exception as e:
              print(f"💥 这个账号执行过程中发生严重异常: {e}")
@@ -264,7 +262,7 @@ def main():
              traceback.print_exc()
              
         # 短暂休息后进入下一个
-        print(f"目前进度: 成功 {success_count} / 处理的 {idx+1}")
+        print(f"目前进度: 成功 {success_count} / 处理任务 {idx+1}/{total}")
         time.sleep(3)
 
     print("=" * 60)
