@@ -996,9 +996,10 @@ class ChatGPTClient:
                         bday_input = page.locator(bday_sel).first
                         
                         # 尝试捕获 hidden 元素作为兜底
-                        bday_hidden = page.locator("input[name='birthday'][type='hidden'], input[name='birthdate'][type='hidden']").first
+                        bday_hidden = page.locator("input[name='birthday'][type='hidden'], input[name='birthdate'][type='hidden'], input[data-rac='']").first
                         
-                        if not bday_input.is_visible() and bday_hidden.count() > 0:
+                        has_visible = bday_input.count() > 0 and bday_input.is_visible()
+                        if not has_visible and bday_hidden.count() > 0:
                             self._log("🛡️ [Playwright] 未发现可见生日框，但在 DOM 中发现隐藏 Native Input，尝试 JS 暴力注入...")
                             # 同步尝试：如果是年龄字段填数字，否则填日期 (使用 / 分隔符更稳健)
                             formatted_bday = birthdate.replace("-", "/")
@@ -1052,9 +1053,9 @@ class ChatGPTClient:
                                 self._human_click(page, landing_btns.first)
                                 page.wait_for_timeout(2000)
                     except Exception:
-                        pass
-
-                    # 🌟 核心升级：使用注入 JS 的方式直接从 API 提取最高质量的 Session (带真实 Account ID)
+                      # --- Session 萃取阶段 ---
+                    found_auth = False
+                    # 优先使用注入 JS 来获取更全面的 Token 信息 (包含 Account ID)
                     token_data = page.evaluate("""async () => {
                         try {
                             const resp = await fetch('/api/auth/session');
