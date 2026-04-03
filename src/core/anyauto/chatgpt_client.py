@@ -990,39 +990,49 @@ class ChatGPTClient:
                         self._human_type(page, name_sel, f"{first_name} {last_name}")
                         page.wait_for_timeout(1000)
                         
-                        # 填写生日或年龄 (排除被 react-aria 隐藏的 input[type='hidden'])
+                        # 填写生日或年龄 (适配被 react-aria 隐藏的 input[type='hidden'])
+                        # 核心逻辑：如果常规 visible 模式找不到，就直接对底层 hidden 元素暴力注入
                         bday_sel = "input[name='birthday']:not([type='hidden']), input[id='birthday']:not([type='hidden']), input[name='birthdate']:not([type='hidden']), input[type='date'], input[placeholder*='年龄'], input[placeholder*='Age'], input[placeholder*='生日']"
                         bday_input = page.locator(bday_sel).first
                         
-                        # 如果找不到可见的，退而求其次寻找任何匹配项并强制填写
-                        if not bday_input.is_visible():
-                             bday_sel_alt = "input[name='birthday'], input[id='birthday'], input[name='birthdate'], input[placeholder*='年龄']"
-                             bday_input = page.locator(bday_sel_alt).first
+                        # 尝试捕获 hidden 元素作为兜底
+                        bday_hidden = page.locator("input[name='birthday'][type='hidden'], input[name='birthdate'][type='hidden']").first
                         
-                        bday_input.wait_for(timeout=5000)
-                        
-                        # 智能判断：如果是询问“年龄”，则填入数字；否则填入完整生日
-                        placeholder = bday_input.get_attribute("placeholder") or ""
-                        label_text = page.evaluate("(el) => el.labels && el.labels.length > 0 ? el.labels[0].innerText : ''", bday_input.element_handle()) or ""
-                        
-                        if "年龄" in placeholder or "Age" in placeholder or "年龄" in label_text or "Age" in label_text:
-                            from datetime import datetime
-                            try:
-                                birth_year = int(birthdate.split('-')[0])
-                                age_val = str(datetime.now().year - birth_year)
-                            except:
-                                age_val = "25"
-                            self._log(f"🔢 检测到年龄字段，填入数字: {age_val}")
-                            self._human_type(page, bday_input, age_val)
+                        if not bday_input.is_visible() and bday_hidden.count() > 0:
+                            self._log("🛡️ [Playwright] 未发现可见生日框，但在 DOM 中发现隐藏 Native Input，尝试 JS 暴力注入...")
+                            # 同步尝试：如果是年龄字段填数字，否则填日期 (使用 / 分隔符更稳健)
+                            formatted_bday = birthdate.replace("-", "/")
+                            page.evaluate("(el, val) => { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }", bday_hidden.element_handle(), formatted_bday)
+                            page.wait_for_timeout(1000)
                         else:
-                            self._human_type(page, bday_input, birthdate)
+                            # 常规可见路径
+                            bday_input.wait_for(timeout=5000)
+                            placeholder = bday_input.get_attribute("placeholder") or ""
+                            label_text = page.evaluate("(el) => el.labels && el.labels.length > 0 ? el.labels[0].innerText : ''", bday_input.element_handle()) or ""
+                            
+                            if "年龄" in placeholder or "Age" in placeholder or "年龄" in label_text or "Age" in label_text:
+                                from datetime import datetime
+                                try:
+                                    birth_year = int(birthdate.split('-')[0])
+                                    age_val = str(datetime.now().year - birth_year)
+                                except:
+                                    age_val = "25"
+                                self._log(f"🔢 检测到年龄字段，填入数字: {age_val}")
+                                self._human_type(page, bday_input, age_val)
+                            else:
+                                # 某些界面可能喜欢 YYYY/MM/DD
+                                formatted_bday = birthdate.replace("-", "/")
+                                self._human_type(page, bday_input, formatted_bday)
                             
                         page.wait_for_timeout(1500)
                         
-                        # 提交个人资料
-                        submit_sel = "button[type='submit'], button:has-text('Agree'), button:has-text('Finish'), button:has-text('Submit'), button:has-text('完成'), button:has-text('同意'), button:has-text('开始吧')"
+                        # 提交个人资料 (增加对截图 2 中“完成账户创建”的精确匹配)
+                        submit_sel = "button[type='submit'], button:has-text('Agree'), button:has-text('Finish'), button:has-text('Submit'), button:has-text('完成'), button:has-text('同意'), button:has-text('开始吧'), button:has-text('账户创建')"
                         self._human_click(page, submit_sel)
-                        page.wait_for_timeout(5000)
+                        
+                        # 关键：提交后多等一会，观察是否有错误提示（比如生日格式不对）
+                        page.wait_for_timeout(4000)
+                        self._inspect_page(page, "[Stage: Post-Profile-Submit]")
                         
                     except Exception as e:
                         self._log(f"⚠️ 填写个人资料阶段出现异常 (可能已自动跳过): {e}")
