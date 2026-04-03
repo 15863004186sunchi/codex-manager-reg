@@ -157,6 +157,10 @@ def main():
             email_prefix = f"{p1}.{p2}{rand_suffix}"
             email = f"{email_prefix}@{args.domain}"
             
+            # 使用真实姓名对应
+            first_name = p1.capitalize()
+            last_name = p2.capitalize()
+            
             # 为 OpenAI 账号生成一个强密码 (用于表单填写)
             password = "".join(random.choices("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#", k=12))
             # 存储 (邮箱, 密码, 名, 姓)
