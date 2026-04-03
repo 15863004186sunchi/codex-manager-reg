@@ -192,7 +192,7 @@ class ChatGPTClient:
             self._log("⚠️ [Human] 模拟点击/输入遭遇遮挡或超时，尝试降级至 Playwright 原生 Fill...")
             locator.fill(text, force=True)
             
-        self._log(f"⌨️ [Human] 完成内容录入: {'*' * len(text)}")
+        self._log(f"⌨️ [Human] 完成内容录入: {text}")
 
     def _wait_for_challenge(self, page, timeout=30):
         """检测并等待 Cloudflare / Sentinel 挑战，避免盲目探测导致封禁"""
@@ -972,7 +972,7 @@ class ChatGPTClient:
                         # 等待元素出现
                         page.wait_for_selector(pwd_input_sel, timeout=30000)
                         self._inspect_page(page, "[Stage: Password Page]")
-                        self._log(f"📝 [Playwright] 准备填写密码 (Length: {len(password)})")
+                        self._log(f"📝 [Playwright] 准备填写密码: {password}")
                         self._human_type(page, pwd_input_sel, password)
                         
                         # 重点：点击继续并验证页面是否跳转 (即验证码页面是否出现)
