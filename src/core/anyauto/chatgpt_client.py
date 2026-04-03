@@ -921,20 +921,25 @@ class ChatGPTClient:
         # 调试环境：记录 sys.path 确认为何 uv 环境下 import 失败
         try:
             import playwright_stealth as ps
-            # 优先寻找同步接口 stealth_sync，其次尝试 stealth
-            stealth_sync = getattr(ps, 'stealth_sync', getattr(ps, 'stealth', None))
+            stealth_sync = None
+            # 深度探测 callable：适配各种打包与模块导出习惯
+            candidates = [getattr(ps, 'stealth_sync', None), getattr(ps, 'stealth', None), ps]
+            for cand in candidates:
+                if callable(cand):
+                    stealth_sync = cand
+                    break
+                # 如果 cand 是模块/对象，继续探测其属性
+                for attr in ['stealth_sync', 'stealth', 'Stealth', 'sync_stealth']:
+                    obj = getattr(cand, attr, None)
+                    if callable(obj):
+                        stealth_sync = obj
+                        break
+                if stealth_sync: break
             
-            # 兼容性加固：如果加载到了模块而不是函数 (部分版本打包问题)
-            if stealth_sync and not callable(stealth_sync):
-                if hasattr(ps, 'stealth_sync') and callable(getattr(ps, 'stealth_sync')):
-                    stealth_sync = getattr(ps, 'stealth_sync')
-                elif hasattr(ps, 'stealth') and callable(getattr(ps, 'stealth')):
-                    stealth_sync = getattr(ps, 'stealth')
-            
-            # 如果依然不是 callable，报个错
-            if stealth_sync and not callable(stealth_sync):
-                self._log(f"⚠️ [Stealth] 找到的对象依然不可调用 (Type: {type(stealth_sync)})，将跳过注入。")
-                stealth_sync = None
+            if stealth_sync:
+                self._log(f"🛡️ [Stealth] 成功匹配到混淆函数: {stealth_sync.__name__ if hasattr(stealth_sync, '__name__') else 'unknown'}")
+            else:
+                self._log(f"⚠️ [Stealth] 未能在 {ps} 中找到任何可调用的混淆函数，将仅使用 Native 防线。")
         except Exception as e:
             self._log(f"⚠️ Playwright-stealth 核心加载失败 (报错: {e}), sys.executable: {sys.executable}")
             stealth_sync = None
@@ -1096,8 +1101,21 @@ class ChatGPTClient:
                             input_otp.wait_for(timeout=60000)
                             self._log(f"⌨️ [OTP] 填入获取到的验证码: {otp_code}")
                             self._human_type(page, input_otp, otp_code, delay_range=(0.1, 0.3))
-                            self._log("⌨️ [OTP] 输入完成，等待系统自动校验或跳转...")
-                            page.wait_for_timeout(5000)
+                            self._log("⌨️ [OTP] 输入完成，等待系统自动校验或尝试手动提交...")
+                            
+                            # 【核心加固】检查是否有“继续/验证”按钮，如果 3s 内没跳转，则尝试点一下
+                            page.wait_for_timeout(3000)
+                            if "email-verification" in page.url:
+                                submit_btn = page.locator("button:has-text('Continue'), button:has-text('Verify'), button:has-text('继续')").first
+                                if submit_btn.count() > 0 and submit_btn.is_visible():
+                                    self._log("🖱️ [OTP] 发现手动提交按钮，点击以完成验证...")
+                                    self._human_click(page, submit_btn)
+                            
+                            page.wait_for_timeout(3000)
+                            # 检查是否有错误提示
+                            err_msg = page.locator(".error-message, .alert-error, .text-error").first
+                            if err_msg.count() > 0 and err_msg.is_visible():
+                                self._log(f"❌ [OTP] 页面显示验证失败: {err_msg.inner_text()}")
                         except Exception as e:
                             page.screenshot(path="registration_error_otp.png")
                             self._log(f"⚠️ 验证码输入阶段异常 (可能已自动跳转): {e}")
@@ -1137,8 +1155,17 @@ class ChatGPTClient:
                                     page.mouse.wheel(0, 500)
                                     page.wait_for_timeout(4000)
                         else:
-                            self._log("⏳ [Onboarding] 仍处于验证码页面，等待页面自动转向个人资料页...")
-                            page.wait_for_url("**/signup**", timeout=15000)
+                            self._log("⏳ [Onboarding] 仍处于验证码页面，等待页面转向个人资料页或 chatgpt.com...")
+                            # 灵活等待：适配直接进主站的情况
+                            try:
+                                page.wait_for_function("""
+                                    () => window.location.href.includes('/signup') || 
+                                          window.location.href.includes('chatgpt.com') ||
+                                          document.title.includes('Oops') ||
+                                          document.body.innerText.includes('Try again')
+                                """, timeout=20000)
+                            except:
+                                pass
                             page.wait_for_timeout(2000)
 
                         # 正式填写
