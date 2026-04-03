@@ -51,24 +51,64 @@ def launch_semi_auto_browser():
                 stealth_sync(page)
                 print("🛡️ [Stealth] Browser fingerprints successfully masked.")
             
+            # Inject a floating button for easy extraction
+            def inject_button(page):
+                try:
+                    page.evaluate("""() => {
+                        if (document.getElementById('oai-extract-btn')) return;
+                        const btn = document.createElement('button');
+                        btn.id = 'oai-extract-btn';
+                        btn.innerText = '🚀 点击提取 Token (Result in Terminal)';
+                        btn.style.position = 'fixed';
+                        btn.style.top = '10px';
+                        btn.style.right = '10px';
+                        btn.style.zIndex = '9999';
+                        btn.style.padding = '10px 20px';
+                        btn.style.backgroundColor = '#10a37f';
+                        btn.style.color = 'white';
+                        btn.style.border = 'none';
+                        btn.style.borderRadius = '5px';
+                        btn.style.cursor = 'pointer';
+                        btn.style.fontWeight = 'bold';
+                        btn.onclick = () => { window.__oai_trigger = true; btn.innerText = '⌛ 提取中...'; };
+                        document.body.appendChild(btn);
+                    }""")
+                except:
+                    pass
+
             # Navigate to ChatGPT
             print("\n[Action] Navigating to ChatGPT. Please perform sign-up/login manually.")
             page.goto("https://chatgpt.com/", wait_until="domcontentloaded")
+            inject_button(page)
             
             print("-" * 60)
             print("🛑 STOP! Please perform the following steps in the browser:")
             print("  1. Click 'Sign up' or 'Log in'.")
             print("  2. Complete the email/password/OTP/Profile steps manually.")
-            print("  3. Once you see the ChatGPT chat interface, come back to this terminal.")
+            print("  3. ⚠️ 看浏览器右上角，有一个绿色的按钮 '点击提取 Token'")
+            print("  4. 登录完成后，直接点击那个绿色按钮即可。")
             print("-" * 60)
             
             while True:
-                user_cmd = input("\n[Trigger] Press Enter to extract token, or type 'exit' to quit: ").strip().lower()
+                # Poll for browser trigger or wait for terminal input (Non-blocking check)
+                is_triggered = False
+                try:
+                    is_triggered = page.evaluate("window.__oai_trigger")
+                except:
+                    pass
                 
-                if user_cmd == 'exit':
-                    break
+                if not is_triggered:
+                    # Provide terminal fallback (using a short timeout logic if possible, or just print)
+                    time.sleep(1)
+                    # Re-inject button if navigation happened
+                    inject_button(page)
+                    # Use a non-blocking check for stdin if possible, or just rely on the button
+                    continue
+
+                # Reset trigger
+                page.evaluate("window.__oai_trigger = false")
                 
-                print("⏳ Extracting session token from ChatGPT...")
+                print("\n[Trigger] Detected browser button click! Extracting...")
                 try:
                     # Execute the JS extraction script
                     token_data = page.evaluate("""async () => {
