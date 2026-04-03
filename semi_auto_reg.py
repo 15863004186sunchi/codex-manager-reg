@@ -111,14 +111,20 @@ def launch_semi_auto_browser(proxy_override=None):
             captured_tokens = {"refresh_token": None, "access_token": None}
             def handle_response(response):
                 try:
-                    if "/api/auth/callback/openai" in response.url or "/oauth/token" in response.url:
+                    url = response.url.lower()
+                    if "token" in url or "callback" in url:
                         if response.status == 200:
-                            data = response.json()
-                            if "refresh_token" in data:
-                                captured_tokens["refresh_token"] = data["refresh_token"]
-                                print(f"📡 [Network] Detected Real Refresh Token in {response.url.split('/')[-1]}")
-                            if "access_token" in data:
-                                captured_tokens["access_token"] = data["access_token"]
+                            try:
+                                data = response.json()
+                                # 深度检查所有字段
+                                for k, v in data.items():
+                                    if "refresh_token" in k and v:
+                                        captured_tokens["refresh_token"] = v
+                                        print(f"📡 [Network] Detected Real Refresh Token in {url}")
+                                    if "access_token" in k and v:
+                                        captured_tokens["access_token"] = v
+                            except:
+                                pass
                 except:
                     pass
             page.on("response", handle_response)
@@ -196,9 +202,12 @@ def launch_semi_auto_browser(proxy_override=None):
                 try:
                     # Capture all cookies beforehand
                     all_cookies = browser.cookies()
+                    print(f"debug: All cookie names: {[c['name'] for c in all_cookies]}")
+                    
                     refresh_token = captured_tokens["refresh_token"] # Prioritize real one from network
                     if not refresh_token:
-                        refresh_token = next((c['value'] for c in all_cookies if 'refresh-token' in c['name']), None)
+                        # 更宽松的匹配规则
+                        refresh_token = next((c['value'] for c in all_cookies if 'refresh' in c['name'].lower()), None)
                     
                     session_token = next((c['value'] for c in all_cookies if 'session-token' in c['name']), None)
                     
