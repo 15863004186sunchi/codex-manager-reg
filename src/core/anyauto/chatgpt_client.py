@@ -222,7 +222,11 @@ class ChatGPTClient:
         """探测并记录当前页面的 URL/标题/可见元素，用于远程调试"""
         try:
             url = page.url
-            title = page.title()
+            title = ""
+            try:
+                title = page.title()
+            except Exception:
+                pass # 导航中可能 context destroyed
             # 探测可见的输入框 (使用 offsetParent 检查可见性，规避 :visible 语法错误)
             inputs = page.evaluate("""() => 
                 Array.from(document.querySelectorAll('input')).filter(el => el.offsetParent !== null).map(el => 
@@ -994,9 +998,13 @@ class ChatGPTClient:
                         page.wait_for_timeout(random.randint(3000, 6000))
                     except Exception as e:
                         current_url = page.url
-                        page.screenshot(path="registration_error_pwd.png")
-                        self._inspect_page(page, "[Stage: Pwd-Error]")
-                        return False, f"Playwright 阶段填写密码失败 (URL: {current_url}): {e}", None
+                        # 如果 URL 已经包含了 email-verification，说明其实已经提交成功了，不要返回 False
+                        if "email-verification" in current_url:
+                            self._log("✅ 检测到 URL 已跳转至 email-verification，忽略过程中的导航异常 (Context Destroyed)。")
+                        else:
+                            page.screenshot(path="registration_error_pwd.png")
+                            self._inspect_page(page, "[Stage: Pwd-Error]")
+                            return False, f"Playwright 阶段填写密码失败 (URL: {current_url}): {e}", None
                     
                     # 2. 获取并填写验证码
                     self._log(f"📧 [Playwright] 等待并获取邮件验证码 (过滤早于 {otp_sent_at} 的旧邮件)...")
