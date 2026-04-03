@@ -944,22 +944,52 @@ class ChatGPTClient:
                         page.screenshot(path="registration_error_otp.png")
                         return False, f"Playwright 阶段填写验证码失败 (URL: {page.url}): {e}"
                     
-                    # 3. 填写个人资料 (绕过 Stage 2 风控，带 so-token)
+                    # 3. 填写个人资料 (处理可能出现的 Onboarding 引导、喜好设置等)
                     try:
-                        self._log("👤 [Playwright] 填写个人资料 (Name / Birthdate)...")
-                        name_sel = "input[name='name'], input[id='name']"
+                        self._log("👤 [Playwright] 准备进入个人资料填写阶段...")
+                        
+                        # 循环尝试跳过引导页，直到出现姓名输入框
+                        for skip_attempt in range(5):
+                            self._inspect_page(page, f"[Stage: Onboarding-{skip_attempt}]")
+                            
+                            # 目标元素：姓名输入框
+                            name_sel = "input[name='name'], input[id='name'], input[placeholder*='Name']"
+                            if page.locator(name_sel).first.is_visible():
+                                self._log("✅ 已到达个人资料填写页面")
+                                break
+                            
+                            # 尝试寻找并点击各种“继续/跳过/开始”按钮
+                            # 这里的选择器涵盖了：Continue, Skip, Next, Okay, Start, Let's go 等常见按钮
+                            skip_btns = page.locator("button:has-text('Continue'), button:has-text('Skip'), button:has-text('Next'), button:has-text('Okay'), button:has-text('Start'), button:has-text('Done')")
+                            if skip_btns.first.is_visible():
+                                self._log(f"⚡ [Onboarding] 发现引导按钮，尝试点击跳过...")
+                                self._human_click(page, skip_btns.first)
+                                page.wait_for_timeout(2000)
+                            else:
+                                self._log("⏳ [Onboarding] 未发现明显引导按钮，等待页面加载...")
+                                page.wait_for_timeout(3000)
+
+                        # 正式填写
+                        self._log("📝 [Playwright] 正在填写 Name / Birthdate...")
                         page.wait_for_selector(name_sel, timeout=30000)
                         
+                        # 填写姓名
                         self._human_type(page, name_sel, f"{first_name} {last_name}")
                         page.wait_for_timeout(1000)
                         
-                        bday_sel = "input[name='birthday'], input[id='birthday'], input[name='birthdate']"
+                        # 填写生日 (适配不同属性名)
+                        bday_sel = "input[name='birthday'], input[id='birthday'], input[name='birthdate'], input[type='date']"
+                        page.wait_for_selector(bday_sel, timeout=5000)
                         self._human_type(page, bday_sel, birthdate)
                         page.wait_for_timeout(1000)
                         
-                        self._human_click(page, "button[type='submit'], button:has-text('Agree'), button:has-text('Finish')")
+                        # 提交个人资料
+                        self._human_click(page, "button[type='submit'], button:has-text('Agree'), button:has-text('Finish'), button:has-text('Submit')")
+                        page.wait_for_timeout(3000)
+                        
                     except Exception as e:
-                        self._log(f"填写个人资料超时或跳过: {e}")
+                        self._log(f"⚠️ 填写个人资料阶段出现异常 (可能已自动跳过): {e}")
+                        page.screenshot(path="registration_error_profile.png")
                     
                     # 4. 等待成功重定向与 Session 获取
                     self._log("⏳ [Playwright] 等待重定向至 chatgpt.com 以收取战利品...")
