@@ -1083,53 +1083,63 @@ class ChatGPTClient:
                             return False, f"Playwright 阶段填写密码失败 (URL: {current_url}): {e}", None
                     
                     # 2. 获取并填写验证码
-                    self._log(f"📧 [Playwright] 等待并获取邮件验证码 (过滤早于 {otp_sent_at} 的旧邮件)...")
-                    otp_code = skymail_client.get_verification_code(email, timeout=120, otp_sent_at=otp_sent_at)
-                    if not otp_code:
-                        return False, "未收到邮箱验证码，流程终止！", None
-                    
-                    try:
-                        self._log(f"🔑 [Playwright] 正在确认验证码输入框 (URL: {page.url})...")
-                        # 验证码输入框等待设置为 60 秒，以对抗超慢代理或二次验证
-                        input_otp = page.locator("input[inputmode='numeric']").first
-                        input_otp.wait_for(timeout=60000)
-                        self._log(f"⌨️ [OTP] 准备输入验证码: {otp_code}")
-                        self._human_type(page, input_otp, otp_code, delay_range=(0.1, 0.3))
-                        self._log("⌨️ [OTP] 验证码输入完成，等待渲染或跳转...")
-                        page.wait_for_timeout(5000)
-                    except Exception as e:
-                        page.screenshot(path="registration_error_otp.png")
-                        return False, f"Playwright 阶段填写验证码失败 (URL: {page.url}): {e}", None
-                    
+                    if "email-verification" in page.url or "Check your inbox" in page.content():
+                        self._log(f"📧 [Playwright] 进入验证码填写阶段 (URL: {page.url})")
+                        otp_code = skymail_client.get_verification_code(email, timeout=120, otp_sent_at=otp_sent_at)
+                        if not otp_code:
+                            return False, "未收到邮箱验证码，流程终止！", None
+                        
+                        try:
+                            self._log(f"🔑 [Playwright] 正在定位验证码输入框...")
+                            # 验证码输入框等待设置为 60 秒，以对抗超慢代理或二次验证
+                            input_otp = page.locator("input[inputmode='numeric']").first
+                            input_otp.wait_for(timeout=60000)
+                            self._log(f"⌨️ [OTP] 填入获取到的验证码: {otp_code}")
+                            self._human_type(page, input_otp, otp_code, delay_range=(0.1, 0.3))
+                            self._log("⌨️ [OTP] 输入完成，等待系统自动校验或跳转...")
+                            page.wait_for_timeout(5000)
+                        except Exception as e:
+                            page.screenshot(path="registration_error_otp.png")
+                            self._log(f"⚠️ 验证码输入阶段异常 (可能已自动跳转): {e}")
+                    else:
+                        self._log(f"⏭️ [OTP] 当前 URL ({page.url}) 非验证码页面，跳过填码环节。")
+
                     # 3. 填写个人资料 (处理可能出现的 Onboarding 引导、喜好设置等)
                     try:
                         self._log("👤 [Playwright] 准备进入个人资料填写阶段...")
                         
-                        # 循环尝试跳过引导页，直到出现姓名输入框
-                        for skip_attempt in range(8): # 增加尝试次数以应对更多引导页
-                            self._inspect_page(page, f"[Stage: Onboarding-{skip_attempt}]")
-                            
-                            # 目标元素：姓名输入框
-                            name_sel = "input[name='name'], input[id='name'], input[placeholder*='Name'], input[placeholder*='名']"
-                            if page.locator(name_sel).first.is_visible():
-                                self._log("✅ 已到达个人资料填写页面")
-                                break
-                            
-                            # 尝试寻找并点击各种“继续/跳过/开始”按钮 (中两英双语支持)
-                            # 涵盖：Continue/继续, Skip/跳过, Next/下一步, Okay/好的, Start/开始, Done/完成, Finish/完成, Agree/同意, Let's go/好的，开始吧
-                            # 注意：双引号内嵌单引号，规避 CSS 解析错误
-                            skip_text_sel = 'button:has-text("Continue"), button:has-text("Skip"), button:has-text("Next"), button:has-text("Okay"), button:has-text("Start"), button:has-text("Done"), button:has-text("Finish"), button:has-text("Agree"), button:has-text("Let\'s go"), button:has-text("继续"), button:has-text("跳过"), button:has-text("下一步"), button:has-text("好的"), button:has-text("开始"), button:has-text("完成"), button:has-text("同意"), button:has-text("开始吧"), a:has-text("跳过"), span:has-text("跳过")'
-                            
-                            skip_btn = page.locator(skip_text_sel).first
-                            if skip_btn.is_visible():
-                                self._log(f"⚡ [Onboarding] 发现引导按钮，尝试点击跳过...")
-                                self._human_click(page, skip_btn)
-                                page.wait_for_timeout(3000) # 增加等待时间让 UI 加载
-                                continue # 如果点击成功，重新这一步的探测，可能还有下一个引导
-                            else:
-                                self._log("⏳ [Onboarding] 未发现明显引导按钮，尝试滚动页面或等待加载...")
-                                page.mouse.wheel(0, 500) # 模拟向下滚动
-                                page.wait_for_timeout(4000)
+                        # 确保不在验证码页面才执行跳过逻辑，防止误导
+                        if "email-verification" not in page.url:
+                            # 循环尝试跳过引导页，直到出现姓名输入框
+                            for skip_attempt in range(8):
+                                self._inspect_page(page, f"[Stage: Onboarding-{skip_attempt}]")
+                                
+                                # 目标元素：姓名输入框
+                                name_sel = "input[name='name'], input[id='name'], input[placeholder*='Name'], input[placeholder*='名']"
+                                if page.locator(name_sel).first.is_visible():
+                                    self._log("✅ 已到达个人资料填写页面")
+                                    break
+                                
+                                # 引导按钮选择器：在 Profile 阶段才尝试点击 Continue
+                                skip_text_sel = 'button:has-text("Skip"), button:has-text("Next"), button:has-text("Okay"), button:has-text("Start"), button:has-text("Done"), button:has-text("Finish"), button:has-text("Agree"), button:has-text("Let\'s go"), button:has-text("跳过"), button:has-text("下一步"), button:has-text("好的"), button:has-text("开始吧")'
+                                # 只有在非 auth.openai.com 或者 URL 表明是 onboarding 时，才允许点击 Continue
+                                if "onboarding" in page.url or "signup" in page.url:
+                                    skip_text_sel += ', button:has-text("Continue"), button:has-text("继续")'
+                                
+                                skip_btn = page.locator(skip_text_sel).first
+                                if skip_btn.is_visible():
+                                    self._log(f"⚡ [Onboarding] 发现引导按钮 ({skip_btn.inner_text()})，尝试尝试点击跳过...")
+                                    self._human_click(page, skip_btn)
+                                    page.wait_for_timeout(3000)
+                                    continue
+                                else:
+                                    self._log("⏳ [Onboarding] 未发现明显引导按钮，尝试滚动页面或等待加载...")
+                                    page.mouse.wheel(0, 500)
+                                    page.wait_for_timeout(4000)
+                        else:
+                            self._log("⏳ [Onboarding] 仍处于验证码页面，等待页面自动转向个人资料页...")
+                            page.wait_for_url("**/signup**", timeout=15000)
+                            page.wait_for_timeout(2000)
 
                         # 正式填写
                         self._log("📝 [Playwright] 正在填写 Name / Birthdate...")
