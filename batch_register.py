@@ -234,10 +234,11 @@ def main():
             # 使用 EmailServiceAdapter 适配器解决 IMAP 轮询与新旧过滤问题
             skymail_adapter = EmailServiceAdapter(base_email_service, email, None, client._log)
             
-            # 直接触发 Hybrid Playwright 流程
-            # 由于是 custom_domain / imap 模式，直接从头注册，auth_url 为 None 即可
-            auth_url = None
-            birthdate = "1990-01-01"
+            # 动态生成生日，确保年龄大于 20 (OpenAI 在某些地区对 20 岁以下有更高风控)
+            birth_year = random.randint(1985, 2003) # 2026 - 2003 = 23 > 20
+            birth_month = random.randint(1, 12)
+            birth_day = random.randint(1, 28)
+            birthdate = f"{birth_year}-{birth_month:02d}-{birth_day:02d}"
             
             success, msg = client.register_complete_flow(
                 email=email,

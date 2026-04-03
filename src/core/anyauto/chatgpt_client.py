@@ -962,9 +962,9 @@ class ChatGPTClient:
                                 self._log("✅ 已到达个人资料填写页面")
                                 break
                             
-                            # 尝试寻找并点击各种“继续/跳过/开始”按钮 (中两英双语支持)
+                            # 尝试寻找并点击各种“继续/跳过/开始”按钮 (中英双语支持)
                             # 涵盖：Continue/继续, Skip/跳过, Next/下一步, Okay/好的, Start/开始, Done/完成, Finish/完成, Agree/同意, Let's go/好的，开始吧
-                            skip_text_sel = "button:has-text('Continue'), button:has-text('Skip'), button:has-text('Next'), button:has-text('Okay'), button:has-text('Start'), button:has-text('Done'), button:has-text('Finish'), button:has-text('Agree'), button:has-text('Let\\'s go'), button:has-text('继续'), button:has-text('跳过'), button:has-text('下一步'), button:has-text('好的'), button:has-text('开始'), button:has-text('完成'), button:has-text('同意'), button:has-text('开始吧'), a:has-text('跳过'), span:has-text('跳过')"
+                            skip_text_sel = 'button:has-text("Continue"), button:has-text("Skip"), button:has-text("Next"), button:has-text("Okay"), button:has-text("Start"), button:has-text("Done"), button:has-text("Finish"), button:has-text("Agree"), button:has-text("Let\'s go"), button:has-text("继续"), button:has-text("跳过"), button:has-text("下一步"), button:has-text("好的"), button:has-text("开始"), button:has-text("完成"), button:has-text("同意"), button:has-text("开始吧"), a:has-text("跳过"), span:has-text("跳过")'
                             
                             skip_btn = page.locator(skip_text_sel).first
                             if skip_btn.is_visible():
