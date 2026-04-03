@@ -1016,13 +1016,13 @@ class ChatGPTClient:
                             self._log("🛡️ [Playwright] 未发现可见生日框，但在 DOM 中发现隐藏 Native Input，尝试 JS 暴力注入...")
                             # 同步尝试：如果是年龄字段填数字，否则填日期 (使用 / 分隔符更稳健)
                             formatted_bday = birthdate.replace("-", "/")
-                            page.evaluate("(el, val) => { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }", bday_hidden.element_handle(), formatted_bday)
+                            bday_hidden.evaluate("(el, val) => { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }", formatted_bday)
                             page.wait_for_timeout(1000)
                         else:
                             # 常规可见路径
                             bday_input.wait_for(timeout=5000)
                             placeholder = bday_input.get_attribute("placeholder") or ""
-                            label_text = page.evaluate("(el) => el.labels && el.labels.length > 0 ? el.labels[0].innerText : ''", bday_input.element_handle()) or ""
+                            label_text = bday_input.evaluate("(el) => el.labels && el.labels.length > 0 ? el.labels[0].innerText : ''") or ""
                             
                             if "年龄" in placeholder or "Age" in placeholder or "年龄" in label_text or "Age" in label_text:
                                 from datetime import datetime
