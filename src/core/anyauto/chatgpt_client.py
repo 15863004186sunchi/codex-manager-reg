@@ -997,65 +997,55 @@ class ChatGPTClient:
 
                         # 正式填写
                         self._log("📝 [Playwright] 正在填写 Name / Birthdate...")
-                        page.wait_for_selector(name_sel, timeout=30000)
-                        
-                        # 填写姓名
-                        self._human_type(page, name_sel, f"{first_name} {last_name}")
-                        page.wait_for_timeout(1000)
-                        
-                        # 填写生日或年龄 (适配被 react-aria 隐藏的 input[type='hidden'])
-                        # 核心逻辑：如果常规 visible 模式找不到，就直接对底层 hidden 元素暴力注入
-                        bday_sel = "input[name='birthday']:not([type='hidden']), input[id='birthday']:not([type='hidden']), input[name='birthdate']:not([type='hidden']), input[type='date'], input[placeholder*='年龄'], input[placeholder*='Age'], input[placeholder*='生日']"
-                        bday_input = page.locator(bday_sel).first
-                        
-                        # 尝试捕获 hidden 元素作为兜底
-                        bday_hidden = page.locator("input[name='birthday'][type='hidden'], input[name='birthdate'][type='hidden'], input[data-rac='']").first
-                        
-                        has_visible = bday_input.count() > 0 and bday_input.is_visible()
-                        if not has_visible and bday_hidden.count() > 0:
-                            self._log("🛡️ [Playwright] 未发现可见生日框，但在 DOM 中发现隐藏 Native Input，尝试 JS 暴力注入...")
-                            # 同步尝试：如果是年龄字段填数字，否则填日期 (使用 / 分隔符更稳健)
-                            formatted_bday = birthdate.replace("-", "/")
-                            bday_hidden.evaluate("(el, val) => { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }", formatted_bday)
-                            page.wait_for_timeout(1000)
-                        else:
-                            # 常规可见路径
-                            bday_input.wait_for(timeout=5000)
-                            placeholder = bday_input.get_attribute("placeholder") or ""
-                            label_text = bday_input.evaluate("(el) => el.labels && el.labels.length > 0 ? el.labels[0].innerText : ''") or ""
+                        # 填写流程加固：由于 OpenAI 有多种 UI 变体（有些姓名和日期在一页，有些分两页），采用循环填充策略
+                        for fill_retry in range(3):
+                            self._inspect_page(page, f"[Stage: Profile-Fill-{fill_retry}]")
                             
-                            if "年龄" in placeholder or "Age" in placeholder or "年龄" in label_text or "Age" in label_text:
-                                from datetime import datetime
-                                try:
-                                    birth_year = int(birthdate.split('-')[0])
-                                    age_val = str(datetime.now().year - birth_year)
-                                except:
-                                    age_val = "25"
-                                self._log(f"🔢 检测到年龄字段，填入数字: {age_val}")
-                                self._human_type(page, bday_input, age_val)
-                            else:
-                                # 某些界面可能喜欢 YYYY/MM/DD
+                            # 1. 填写姓名 (如果可见)
+                            if page.locator(name_sel).first.is_visible():
+                                self._log(f"📝 [Playwright] 发现姓名栏，填入: {first_name} {last_name}")
+                                self._human_type(page, name_sel, f"{first_name} {last_name}")
+                                page.wait_for_timeout(1000)
+
+                            # 2. 填写生日或年龄 (适配被 react-aria 隐藏的 input[type='hidden'])
+                            # 增加对 input[name='age'] 的支持
+                            bday_sel = "input[name='age'], input[id='age'], input[name='birthday']:not([type='hidden']), input[id='birthday']:not([type='hidden']), input[name='birthdate']:not([type='hidden']), input[type='date'], input[placeholder*='年龄'], input[placeholder*='Age'], input[placeholder*='生日']"
+                            bday_input = page.locator(bday_sel).first
+                            bday_hidden = page.locator("input[name='birthday'][type='hidden'], input[name='birthdate'][type='hidden'], input[data-rac='']").first
+                            
+                            has_visible_bday = bday_input.count() > 0 and bday_input.is_visible()
+                            if has_visible_bday:
+                                placeholder = bday_input.get_attribute("placeholder") or ""
+                                label_text = bday_input.evaluate("(el) => el.labels && el.labels.length > 0 ? el.labels[0].innerText : ''") or ""
+                                if any(k in (placeholder + label_text) for k in ["年龄", "Age", "age"]):
+                                    from datetime import datetime
+                                    age_val = str(datetime.now().year - int(birthdate.split('-')[0]))
+                                    self._log(f"🔢 发现可见年龄框，填入年龄: {age_val}")
+                                    self._human_type(page, bday_input, age_val)
+                                else:
+                                    formatted_bday = birthdate.replace("-", "/")
+                                    self._log(f"📅 发现可见生日框，填入日期: {formatted_bday}")
+                                    self._human_type(page, bday_input, formatted_bday)
+                                page.wait_for_timeout(1000)
+                            elif bday_hidden.count() > 0:
+                                self._log("🛡️ [Playwright] 未发现可见生日框，但在 DOM 中发现隐藏 Native Input，尝试 JS 暴力注入...")
                                 formatted_bday = birthdate.replace("-", "/")
-                                self._human_type(page, bday_input, formatted_bday)
+                                bday_hidden.evaluate("(el, val) => { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }", formatted_bday)
+                                page.wait_for_timeout(1000)
                             
-                        page.wait_for_timeout(1500)
-                        
-                        # 提交个人资料 (增加对截图 2 中“完成账户创建”的精确处理)
-                        submit_sel = "button[type='submit'], button:has-text('Agree'), button:has-text('Finish'), button:has-text('Submit'), button:has-text('继续'), button:has-text('同步'), button:has-text('完成'), button:has-text('同意'), button:has-text('开始吧'), button:has-text('账户创建')"
-                        
-                        # 循环尝试点击提交，直到按钮消失或重定向
-                        for sub_retry in range(3):
+                            # 3. 尝试提交
+                            submit_sel = "button[type='submit'], button:has-text('Agree'), button:has-text('Finish'), button:has-text('Submit'), button:has-text('继续'), button:has-text('同步'), button:has-text('完成'), button:has-text('同意'), button:has-text('开始吧'), button:has-text('账户创建')"
                             submit_btn = page.locator(submit_sel).first
                             if submit_btn.count() > 0 and submit_btn.is_visible():
-                                self._log(f"🖱️ [Playwright] 准备提交个人资料 (尝试 {sub_retry+1}/3)...")
+                                self._log("🖱️ [Playwright] 点击提交/下一步按钮...")
                                 self._human_click(page, submit_btn)
                                 page.wait_for_timeout(4000)
-                                if not submit_btn.is_visible():
-                                    self._log("✅ 个人资料提交成功 (按钮已消失)")
-                                    break
-                            else:
-                                break
                                 
+                            # 检查是否已经离开主注册域或按钮消失
+                            if "auth.openai.com" not in page.url or submit_btn.count() == 0:
+                                self._log("✅ 个人资料流程看起来已完成")
+                                break
+                            
                         self._inspect_page(page, "[Stage: Post-Profile-Submit]")
                         
                         # 兜底：如果还停在注册域且没有任何报错，强制进聊天页 (因为账号通常已创建成功)
