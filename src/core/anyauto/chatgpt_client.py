@@ -168,6 +168,29 @@ class ChatGPTClient:
             page.keyboard.type(char)
             time.sleep(random.uniform(*delay_range))
         self._log(f"⌨️ [Human] 完成内容录入: {'*' * len(text)}")
+
+    def _inspect_page(self, page, label="[Inspector]"):
+        """探测并记录当前页面的 URL/标题/可见元素，用于远程调试"""
+        try:
+            url = page.url
+            title = page.title()
+            # 探测可见的输入框
+            inputs = page.evaluate("""() => 
+                Array.from(document.querySelectorAll('input:visible')).map(el => 
+                    `${el.name || el.id || 'no-name'}(${el.type || 'text'})`
+                )
+            """)
+            # 探测可见的按钮
+            buttons = page.evaluate("""() => 
+                Array.from(document.querySelectorAll('button:visible')).map(el => 
+                    el.innerText || el.value || 'icon-button'
+                )
+            """)
+            self._log(f"{label} URL: {url} | Title: {title}")
+            if inputs: self._log(f"{label} Visible Inputs: {inputs}")
+            if buttons: self._log(f"{label} Visible Buttons: {buttons}")
+        except Exception as e:
+            self._log(f"{label} 无法完成页面探测: {e}")
     
     def _log(self, msg):
         """输出日志"""
@@ -846,6 +869,7 @@ class ChatGPTClient:
                     # 避免 networkidle 死等，改用 domcontentloaded
                     page.goto(auth_url, wait_until="domcontentloaded", timeout=60000)
                     page.wait_for_timeout(3000) # 让 React 组件渲染
+                    self._inspect_page(page, "[Stage: Visit]")
 
                     # 如果页面依然要求输入邮箱
                     try:
@@ -856,6 +880,7 @@ class ChatGPTClient:
                             self._human_type(page, email_input_sel, email)
                             self._human_click(page, "button[type='submit'], button:has-text('Continue')")
                             page.wait_for_timeout(3000)
+                            self._inspect_page(page, "[Stage: Email Submitted]")
                     except Exception:
                         pass
                     
@@ -865,6 +890,7 @@ class ChatGPTClient:
                         pwd_input_sel = "input[type='password'], input[name='password']"
                         # 等待元素出现
                         page.wait_for_selector(pwd_input_sel, timeout=30000)
+                        self._inspect_page(page, "[Stage: Password Page]")
                         self._human_type(page, pwd_input_sel, password)
                         
                         # 重点：点击继续并验证页面是否跳转 (即验证码页面是否出现)
@@ -879,6 +905,7 @@ class ChatGPTClient:
                         # 我们等待 input[inputmode='numeric'] 或者输入框消失
                         try:
                             page.wait_for_function("() => !document.querySelector('input[type=\"password\"]') || document.querySelector('input[inputmode=\"numeric\"]')", timeout=20000)
+                            self._inspect_page(page, "[Stage: Post-Password]")
                         except Exception:
                             self._log("⚠️ 密码提交后页面未显著跳转，可能存在隐藏验证码或网络拥堵。")
                         
@@ -886,6 +913,7 @@ class ChatGPTClient:
                     except Exception as e:
                         current_url = page.url
                         page.screenshot(path="registration_error_pwd.png")
+                        self._inspect_page(page, "[Stage: Pwd-Error]")
                         return False, f"Playwright 阶段填写密码失败 (URL: {current_url}): {e}"
                     
                     # 2. 获取并填写验证码
