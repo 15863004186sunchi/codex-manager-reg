@@ -1045,12 +1045,24 @@ class ChatGPTClient:
                                 page.wait_for_timeout(1000)
                             
                             # 3. 尝试提交
-                            submit_sel = "button[type='submit'], button:has-text('Agree'), button:has-text('Finish'), button:has-text('Submit'), button:has-text('继续'), button:has-text('同步'), button:has-text('完成'), button:has-text('同意'), button:has-text('开始吧'), button:has-text('账户创建')"
+                            submit_sel = "button[type='submit'], button:has-text('Agree'), button:has-text('Finish'), button:has-text('Submit'), button:has-text('继续'), button:has-text('同步'), button:has-text('完成'), button:has-text('同意'), button:has-text('开始吧'), button:has-text('账户创建'), button:has-text('OK'), button:has-text('Confirm'), button:has-text('确认')"
                             submit_btn = page.locator(submit_sel).first
                             if submit_btn.count() > 0 and submit_btn.is_visible():
                                 self._log("🖱️ [Playwright] 点击提交/下一步按钮...")
                                 self._human_click(page, submit_btn)
-                                page.wait_for_timeout(4000)
+                                page.wait_for_timeout(2000)
+                                
+                                # 处理潜在的二次确认弹窗 (OK/Confirm)
+                                for modal_check in range(2):
+                                    confirm_btn = page.locator("button:has-text('OK'), button:has-text('Confirm'), button:has-text('确认')").first
+                                    if confirm_btn.is_visible() and confirm_btn != submit_btn:
+                                        self._log("⚡ [Playwright] 发现二次确认按钮，点击确认提交...")
+                                        self._human_click(page, confirm_btn)
+                                        page.wait_for_timeout(2000)
+                                    else:
+                                        break
+                                
+                                page.wait_for_timeout(3000)
                                 
                             # 检查是否已经离开主注册域或按钮消失
                             if "auth.openai.com" not in page.url or submit_btn.count() == 0:
@@ -1082,8 +1094,13 @@ class ChatGPTClient:
                                 self._log("⚡ [Landing] 发现最后的欢迎引导，点击进入...")
                                 self._human_click(page, landing_btns.first)
                                 page.wait_for_timeout(2000)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # 兜底：如果超时了且停留还在 auth.openai.com，强制尝试跳转 chatgpt.com
+                        if "auth.openai.com" in page.url:
+                            self._log(f"⚠️ [Redirection] 等待重定向超时 ({e})，强制尝试进入 chatgpt.com 进行 Session 提取...")
+                            page.goto("https://chatgpt.com/", timeout=30000)
+                        else:
+                            pass
 
                     # --- Session 萃取阶段 ---
                     found_auth = False
