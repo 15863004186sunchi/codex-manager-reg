@@ -1155,12 +1155,18 @@ class ChatGPTClient:
                                 self._human_click(page, landing_btns.first)
                                 page.wait_for_timeout(2000)
                     except Exception as e:
-                        # 兜底：如果超时了且停留还在 auth.openai.com，强制尝试跳转 chatgpt.com
-                        if "auth.openai.com" in page.url:
-                            self._log(f"⚠️ [Redirection] 等待重定向超时 ({e})，强制尝试进入 chatgpt.com 进行 Session 提取...")
-                            page.goto("https://chatgpt.com/", timeout=30000)
+                        # 核心加固：如果发生了 OAuthCallback 错误，或者是停留还在 auth.openai.com，说明注册完成了但最后一步握手失败
+                        current_url = page.url
+                        if "error=OAuthCallback" in current_url or "auth.openai.com" in current_url:
+                            self._log(f"⚠️ [Handshake] 检测到 OAuth 错误或跳转中断 ({current_url})，尝试强制重新登录以恢复 Session...")
+                            # 账户通常已经创建成功，直接访问登录页尝试重新建立会话
+                            try:
+                                page.goto(f"{self.BASE}/auth/login", timeout=30000)
+                                page.wait_for_timeout(5000)
+                            except:
+                                pass
                         else:
-                            pass
+                            self._log(f"⚠️ [Redirection] 跳转阶段提示: {e}")
 
                     # --- Session 萃取阶段 ---
                     found_auth = False
@@ -1217,7 +1223,14 @@ class ChatGPTClient:
                         self._log("✅ [Playwright] 成功萃取 __Secure-next-auth.session-token！")
                         return True, "注册并萃取成功", self.last_token_info
                     else:
-                        return False, "未能抓取到 next-auth 会话令牌，请检查页面是否成功跳转。", None
+                        # 最后一次努力：即使页面提示错误，如果 Cookie 里有东西，也能活过来
+                        cookie_token = self.get_next_auth_session_token()
+                        if cookie_token:
+                            self._log("🎯 [Recovery] 页面显示错误但 Cookie 中发现有效令牌，标记为成功！")
+                            self.last_token_info = {"access_token": cookie_token, "success": True}
+                            return True, "注册成功 (通过 Cookie 恢复)", self.last_token_info
+                        
+                        return False, "未能抓取到 next-auth 会话令牌，请检查页面是否成功跳转。账号可能已注册但 IP/指纹遭拦截。", None
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
