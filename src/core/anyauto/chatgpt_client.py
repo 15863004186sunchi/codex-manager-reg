@@ -71,6 +71,42 @@ class ChatGPTClient:
     BASE = "https://chatgpt.com"
     AUTH = "https://auth.openai.com"
     
+    # Native Stealth Script (作为 playwright-stealth 加载失败的强力兜底)
+    _NATIVE_STEALTH_JS = """
+    () => {
+        // 1. 移除 webdriver 标记 (核心攻击面)
+        const newProto = Object.getPrototypeOf(navigator);
+        delete newProto.webdriver;
+        Object.setPrototypeOf(navigator, newProto);
+
+        // 2. 伪造 Chrome 运行时对象
+        if (!window.chrome) {
+            window.chrome = {
+                runtime: {},
+                loadTimes: function() {},
+                csi: function() {},
+                app: {}
+            };
+        }
+
+        // 3. 抹除插件数/语言指纹 (对齐常用浏览器)
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en', 'zh-CN', 'zh'] });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+        
+        // 4. 修复权限查询
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = (parameters) => (
+            parameters.name === 'notifications' ?
+            Promise.resolve({ state: Notification.permission }) :
+            originalQuery(parameters)
+        );
+        
+        // 5. 伪造硬件并发数与内存 (避免 0/0 极端值)
+        Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+        Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+    }
+    """
+    
     def __init__(self, proxy=None, verbose=True, browser_mode="protocol"):
         """
         初始化 ChatGPT 客户端
@@ -870,6 +906,7 @@ class ChatGPTClient:
         """混合驱动：使用 Playwright 完成高风险注册流程（带清空缓存策略），完成后回收 Session Token。"""
         import tempfile
         import sys
+        import traceback
         from playwright.sync_api import sync_playwright
         
         # 调试环境：记录 sys.path 确认为何 uv 环境下 import 失败
@@ -925,17 +962,22 @@ class ChatGPTClient:
                 page.on("dialog", lambda dialog: self._log(f"💬 [Dialog] 发现弹窗: {dialog.type} - {dialog.message} (自动 Accept)"))
                 page.on("requestfailed", lambda req: self._log(f"❌ [Network] 请求失败: {req.url} ({req.failure.error_text})") if "openai" in req.url else None)
                 
-                # 开启指纹隐藏插件
+                # --- 指纹混淆策略 (强制 + 插件) ---
+                # 无论插件是否加载成功，均尝试注入 Native Stealth 脚本作为基础防线
+                try:
+                    page.add_init_script(self._NATIVE_STEALTH_JS)
+                    self._log("🛡️ [Stealth] Native 基础防线注入成功！")
+                except Exception as e:
+                    self._log(f"⚠️ [Stealth] Native 注入异常: {e}")
+
                 if stealth_sync and callable(stealth_sync):
                     try:
                         stealth_sync(page)
-                        self._log("🛡️ [Stealth] 指纹混淆插件加载成功！")
+                        self._log("🛡️ [Stealth] 第三方插件混淆注入成功！")
                     except Exception as e:
-                        self._log(f"⚠️ [Stealth] 插件调用失败: {e}")
-                elif stealth_sync:
-                    self._log(f"⚠️ [Stealth] 加载的对象不可调用 (Type: {type(stealth_sync)})，跳过。")
+                        self._log(f"⚠️ [Stealth] 第三方插件调用失败: {e}")
                 else:
-                    self._log("❌ [Stealth] 指纹插件加载失败，正裸奔运行，极易被风控！")
+                    self._log("❌ [Stealth] 第三方插件缺失或不可用，当前仅依赖 Native 基础防线。")
                 
                 # 注入关键的 oai-did 确保从协议层传过去的 session 是一致的
                 try:
