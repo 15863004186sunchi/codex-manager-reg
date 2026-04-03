@@ -855,9 +855,14 @@ class ChatGPTClient:
                 page = browser.new_page()
                 
                 # 开启指纹隐藏插件
-                if stealth_sync:
-                    stealth_sync(page)
-                    self._log("🛡️ [Stealth] 指纹混淆插件加载成功！")
+                if stealth_sync and callable(stealth_sync):
+                    try:
+                        stealth_sync(page)
+                        self._log("🛡️ [Stealth] 指纹混淆插件加载成功！")
+                    except Exception as e:
+                        self._log(f"⚠️ [Stealth] 插件调用失败: {e}")
+                elif stealth_sync:
+                    self._log(f"⚠️ [Stealth] 加载的对象不可调用 (Type: {type(stealth_sync)})，跳过。")
                 else:
                     self._log("❌ [Stealth] 指纹插件加载失败，正裸奔运行，极易被风控！")
                 

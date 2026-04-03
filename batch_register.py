@@ -157,13 +157,10 @@ def main():
             email_prefix = f"{p1}.{p2}{rand_suffix}"
             email = f"{email_prefix}@{args.domain}"
             
-            # 使用真实姓名对应
-            first_name = p1.capitalize()
-            last_name = p2.capitalize()
-            
             # 为 OpenAI 账号生成一个强密码 (用于表单填写)
             password = "".join(random.choices("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#", k=12))
-            accounts.append((email, password)) 
+            # 存储 (邮箱, 密码, 名, 姓)
+            accounts.append((email, password, first_name, last_name)) 
             print(f"👤 生成身份: {first_name} {last_name} | 邮箱: {email}")
     else:
         # 模式：从文件读取
@@ -198,10 +195,17 @@ def main():
         base_email_service = LuckMailEmailService(base_url="https://api.luckmail.net", api_key="")
     
     success_count = 0
+    total = len(accounts)
     
-    for idx, (email, secret) in enumerate(accounts):
-        print("\n" + "-" * 50)
-        print(f"⏳ [{idx+1}/{len(accounts)}] 开始处理: {email}")
+    for idx, item in enumerate(accounts):
+        if len(item) == 4:
+            email, secret, f_name, l_name = item
+        else:
+            email, secret = item
+            f_name, l_name = "John", "Doe" # 兜底逻辑
+        
+        print(f"\n" + "-" * 50)
+        print(f"⏳ [{idx+1}/{total}] 开始处理: {email}")
         print("-" * 50)
         
         # 根据模式注册凭证
@@ -229,9 +233,20 @@ def main():
             if mode in ["imap", "custom_domain"]:
                 engine.password = secret
                 
-            result = engine.run()
+            # 使用 hybrid flow 注册
+            birthdate = "1990-01-01"
+            auth_url = None
+            success, result = engine._playwright_hybrid_flow(
+                email=email,
+                password=secret,
+                first_name=f_name,
+                last_name=l_name,
+                birthdate=birthdate,
+                skymail_client=base_email_service,
+                auth_url=auth_url
+            )
             
-            if result.get("success"):
+            if success:
                 print(f"🎉 注册成功！ {email}")
                 success_count += 1
                 # 存档并上传 (使用 engine.password 确保读取的是实际成功的那个)
