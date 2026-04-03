@@ -174,15 +174,15 @@ class ChatGPTClient:
         try:
             url = page.url
             title = page.title()
-            # 探测可见的输入框
+            # 探测可见的输入框 (使用 offsetParent 检查可见性，规避 :visible 语法错误)
             inputs = page.evaluate("""() => 
-                Array.from(document.querySelectorAll('input:visible')).map(el => 
+                Array.from(document.querySelectorAll('input')).filter(el => el.offsetParent !== null).map(el => 
                     `${el.name || el.id || 'no-name'}(${el.type || 'text'})`
                 )
             """)
             # 探测可见的按钮
             buttons = page.evaluate("""() => 
-                Array.from(document.querySelectorAll('button:visible')).map(el => 
+                Array.from(document.querySelectorAll('button')).filter(el => el.offsetParent !== null).map(el => 
                     el.innerText || el.value || 'icon-button'
                 )
             """)
@@ -815,13 +815,13 @@ class ChatGPTClient:
         # 调试环境：记录 sys.path 确认为何 uv 环境下 import 失败
         try:
             import playwright_stealth as ps
-            if hasattr(ps, 'stealth_sync'):
-                stealth_sync = ps.stealth_sync
-            elif hasattr(ps, 'stealth'):
-                stealth_sync = ps.stealth
-            else:
-                # 尝试直接从包里加载
-                from playwright_stealth import stealth_sync
+            # 优先寻找同步接口 stealth_sync，其次尝试 stealth
+            stealth_sync = getattr(ps, 'stealth_sync', getattr(ps, 'stealth', None))
+            # 兼容性加固：如果加载到了模块而不是函数，尝试深度挖掘
+            if stealth_sync and not hasattr(stealth_sync, '__call__') and hasattr(stealth_sync, 'stealth_sync'):
+                stealth_sync = getattr(stealth_sync, 'stealth_sync')
+            elif stealth_sync and not hasattr(stealth_sync, '__call__') and hasattr(stealth_sync, 'stealth'):
+                stealth_sync = getattr(stealth_sync, 'stealth')
         except Exception as e:
             self._log(f"⚠️ Playwright-stealth 核心加载失败 (报错: {e}), sys.executable: {sys.executable}")
             stealth_sync = None

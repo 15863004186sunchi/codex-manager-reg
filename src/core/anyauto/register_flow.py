@@ -51,6 +51,10 @@ class EmailServiceAdapter:
             return code
         return None
 
+    def get_verification_code(self, email, timeout=60, otp_sent_at=None, exclude_codes=None):
+        """兼容 ChatGPTClient 的接口名称。"""
+        return self.wait_for_verification_code(email, timeout, otp_sent_at, exclude_codes)
+
 
 class AnyAutoRegistrationEngine:
     def __init__(
