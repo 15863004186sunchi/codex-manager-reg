@@ -946,13 +946,13 @@ class ChatGPTClient:
                         current_url = page.url
                         page.screenshot(path="registration_error_pwd.png")
                         self._inspect_page(page, "[Stage: Pwd-Error]")
-                        return False, f"Playwright 阶段填写密码失败 (URL: {current_url}): {e}"
+                        return False, f"Playwright 阶段填写密码失败 (URL: {current_url}): {e}", None
                     
                     # 2. 获取并填写验证码
                     self._log(f"📧 [Playwright] 等待并获取邮件验证码 (过滤早于 {otp_sent_at} 的旧邮件)...")
                     otp_code = skymail_client.get_verification_code(email, timeout=120, otp_sent_at=otp_sent_at)
                     if not otp_code:
-                        return False, "未收到邮箱验证码，流程终止！"
+                        return False, "未收到邮箱验证码，流程终止！", None
                     
                     try:
                         self._log(f"🔑 [Playwright] 正在确认验证码输入框 (URL: {page.url})...")
@@ -963,7 +963,7 @@ class ChatGPTClient:
                         page.wait_for_timeout(5000)
                     except Exception as e:
                         page.screenshot(path="registration_error_otp.png")
-                        return False, f"Playwright 阶段填写验证码失败 (URL: {page.url}): {e}"
+                        return False, f"Playwright 阶段填写验证码失败 (URL: {page.url}): {e}", None
                     
                     # 3. 填写个人资料 (处理可能出现的 Onboarding 引导、喜好设置等)
                     try:
