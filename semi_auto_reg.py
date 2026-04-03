@@ -127,7 +127,7 @@ def launch_semi_auto_browser(proxy_override=None):
                 stealth_sync(page)
                 print("🛡️ [Stealth] Browser fingerprints successfully masked.")
             
-            # Inject a floating button for easy extraction
+            # 注入一个浮动按钮，方便手动提取
             def inject_button(page):
                 try:
                     page.evaluate("""() => {
@@ -148,7 +148,13 @@ def launch_semi_auto_browser(proxy_override=None):
                         btn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
                         btn.style.fontWeight = 'bold';
                         btn.style.fontSize = '16px';
-                        btn.onclick = () => { window.__oai_trigger = true; btn.innerText = '⌛ 提取中...'; };
+                        btn.onclick = () => { 
+                            if (window.__oai_extracting) return;
+                            window.__oai_trigger = true; 
+                            window.__oai_extracting = true;
+                            btn.innerText = '⌛ 正在提取 (请稍后)...';
+                            btn.style.backgroundColor = '#666';
+                        };
                         document.body.appendChild(btn);
                     }""")
                 except:
@@ -160,10 +166,11 @@ def launch_semi_auto_browser(proxy_override=None):
             inject_button(page)
             
             print("-" * 60)
-            print("🛑 STOP! Please perform the following steps in the browser:")
-            print("  1. Click 'Sign up' or 'Log in'.")
-            print("  2. Complete the email/password/OTP/Profile steps manually.")
-            print("  3. ⚠️ 登录完成后，点击【右下角】的绿色按钮 '提取并存档 Token'")
+            print("🛑 操作指引 (STOP! Please read):")
+            print("  1. 正常完成邮箱/密码/验证码/个人资料填写。")
+            print("  2. 【关键】等到进入聊天界面（左侧出现对话列表）后。")
+            print("  3. 点击右下角绿色按钮 '🚀 提取并存档 Token'")
+            print("  4. 如果按钮一直转圈，说明浏览器当前环境不稳定，请刷新页面后重试。")
             print("-" * 60)
             
             while True:
@@ -198,8 +205,10 @@ def launch_semi_auto_browser(proxy_override=None):
                     # Execute the JS extraction script
                     token_data = page.evaluate("""async (in_rt, in_st) => {
                         try {
-                            const resp = await fetch('/api/auth/session');
-                            const session = await resp.json();
+                            const fetchTask = fetch('/api/auth/session').then(r => r.json());
+                            const timeoutTask = new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch Timeout (10s)')), 10000));
+                            
+                            const session = await Promise.race([fetchTask, timeoutTask]);
                             const accessToken = session.accessToken || in_st;
                             if (!accessToken) return { success: false, error: "No accessToken or session-token found." };
                             
