@@ -219,31 +219,38 @@ class ChatGPTClient:
         return "timeout"
 
     def _inspect_page(self, page, label="[Inspector]"):
-        """探测并记录当前页面的 URL/标题/可见元素，用于远程调试"""
+        """探测并记录当前页面的 URL/标题/可见元素，用于远程调试 (原子化容错)"""
         try:
-            url = page.url
+            # 1. 基础信息抓取 (极简，防止 context destroyed 崩溃)
+            url = ""
+            try: url = page.url
+            except: pass
+            
             title = ""
+            try: title = page.title()
+            except: pass
+            
+            # 2. 交互元素探测 (可能有 evaluate 失败)
+            inputs = []
+            buttons = []
             try:
-                title = page.title()
-            except Exception:
-                pass # 导航中可能 context destroyed
-            # 探测可见的输入框 (使用 offsetParent 检查可见性，规避 :visible 语法错误)
-            inputs = page.evaluate("""() => 
-                Array.from(document.querySelectorAll('input')).filter(el => el.offsetParent !== null).map(el => 
-                    `${el.name || el.id || 'no-name'}(${el.type || 'text'})`
-                )
-            """)
-            # 探测可见的按钮
-            buttons = page.evaluate("""() => 
-                Array.from(document.querySelectorAll('button')).filter(el => el.offsetParent !== null).map(el => 
-                    el.innerText || el.value || 'icon-button'
-                )
-            """)
+                inputs = page.evaluate("""() => 
+                    Array.from(document.querySelectorAll('input')).filter(el => el.offsetParent !== null).map(el => 
+                        `${el.name || el.id || 'no-name'}(${el.type || 'text'})`
+                    )
+                """)
+                buttons = page.evaluate("""() => 
+                    Array.from(document.querySelectorAll('button')).filter(el => el.offsetParent !== null).map(el => 
+                        el.innerText || el.value || 'icon-button'
+                    )
+                """)
+            except: pass
+            
             self._log(f"{label} URL: {url} | Title: {title}")
             if inputs: self._log(f"{label} Visible Inputs: {inputs}")
             if buttons: self._log(f"{label} Visible Buttons: {buttons}")
-        except Exception as e:
-            self._log(f"{label} 无法完成页面探测: {e}")
+        except Exception:
+            pass # 页面剧烈变动中，静默失败
     
     def _log(self, msg):
         """输出日志"""
@@ -997,10 +1004,12 @@ class ChatGPTClient:
                         
                         page.wait_for_timeout(random.randint(3000, 6000))
                     except Exception as e:
+                        # 核心加固：由于并发导航可能导致 URL 还没来得及更新，我们稍微“等”一下真相
+                        page.wait_for_timeout(2000)
                         current_url = page.url
                         # 如果 URL 已经包含了 email-verification，说明其实已经提交成功了，不要返回 False
                         if "email-verification" in current_url:
-                            self._log("✅ 检测到 URL 已跳转至 email-verification，忽略过程中的导航异常 (Context Destroyed)。")
+                            self._log("✅ 检测到 URL 已成功跳转至 email-verification，流程继续。")
                         else:
                             page.screenshot(path="registration_error_pwd.png")
                             self._inspect_page(page, "[Stage: Pwd-Error]")
