@@ -147,11 +147,24 @@ def main():
     if mode == "custom_domain":
         # 模式：自建域名，自动生成随机前缀和随机强密码
         for _ in range(args.count):
-            random_prefix = "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=8))
-            email = f"user_{random_prefix}@{args.domain}"
+            # 生成更真实的邮箱前缀 (名字.姓氏 + 随机数)
+            first_names = ["james", "mary", "john", "patricia", "robert", "jennifer", "michael", "linda", "william", "elizabeth", "david", "barbara", "richard", "susan", "joseph", "jessica", "thomas", "sarah", "charles", "karen"]
+            last_names = ["smith", "jones", "taylor", "williams", "brown", "white", "harris", "martin", "davies", "wilson", "cooper", "evans", "king", "thomas", "baker", "green", "wright", "johnson", "edwards", "clark"]
+            
+            p1 = random.choice(first_names)
+            p2 = random.choice(last_names)
+            rand_suffix = "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=4))
+            email_prefix = f"{p1}.{p2}{rand_suffix}"
+            email = f"{email_prefix}@{args.domain}"
+            
+            # 使用真实姓名对应
+            first_name = p1.capitalize()
+            last_name = p2.capitalize()
+            
             # 为 OpenAI 账号生成一个强密码 (用于表单填写)
             password = "".join(random.choices("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#", k=12))
             accounts.append((email, password)) 
+            print(f"👤 生成身份: {first_name} {last_name} | 邮箱: {email}")
     else:
         # 模式：从文件读取
         if not filename:

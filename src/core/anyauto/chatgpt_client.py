@@ -814,8 +814,14 @@ class ChatGPTClient:
         
         # 调试环境：记录 sys.path 确认为何 uv 环境下 import 失败
         try:
-            import playwright_stealth
-            from playwright_stealth import stealth_sync
+            import playwright_stealth as ps
+            if hasattr(ps, 'stealth_sync'):
+                stealth_sync = ps.stealth_sync
+            elif hasattr(ps, 'stealth'):
+                stealth_sync = ps.stealth
+            else:
+                # 尝试直接从包里加载
+                from playwright_stealth import stealth_sync
         except Exception as e:
             self._log(f"⚠️ Playwright-stealth 核心加载失败 (报错: {e}), sys.executable: {sys.executable}")
             stealth_sync = None
