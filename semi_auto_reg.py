@@ -147,18 +147,27 @@ def launch_semi_auto_browser():
                         }
                     }""")
                     
-                    if token_data.get("success"):
-                        print(f"✅ Token Extracted Successfully!")
-                        print(f"📧 Email: {token_data['email']}")
-                        print(f"🆔 Account ID: {token_data['account_id']}")
-                        print(f"🔑 Session Token: {token_data['access_token'][:30]}...")
-                        
                         # Save to file
                         os.makedirs("data", exist_ok=True)
-                        save_path = f"data/manual_token_{int(time.time())}.json"
+                        timestamp = int(time.time())
+                        save_filename = f"ChatGPT_Token_{token_data['email'].split('@')[0]}_{timestamp}.json"
+                        save_path = os.path.join("data", save_filename)
+                        abs_save_path = os.path.abspath(save_path)
+                        
                         with open(save_path, "w", encoding="utf-8") as f:
                             json.dump(token_data, f, indent=4, ensure_ascii=False)
-                        print(f"💾 Data saved to: {save_path}")
+                        
+                        print(f"✅ [Result] 提取成功！")
+                        print(f"📧 邮箱: {token_data['email']}")
+                        print(f"💾 文件已在本地生成: {abs_save_path}")
+                        print(f"📁 提示：请不要看浏览器的下载，文件在工程目录的 data 文件夹里！")
+                        
+                        # Auto-open the data folder on Windows
+                        if os.name == 'nt':
+                            try:
+                                os.startfile(os.path.dirname(abs_save_path))
+                            except:
+                                pass
                     else:
                         print(f"❌ Extraction Failed: {token_data.get('error')}")
                         print("Tip: Make sure you are fully logged in and on the chatgpt.com domain.")
