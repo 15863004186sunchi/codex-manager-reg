@@ -63,10 +63,16 @@ class ImapEmailService:
                     mail.login(login_user, login_password)
                     mail.select("INBOX")
                     
-                    # 搜索逻辑：搜索来自 openai.com 的邮件，然后在代码里过滤 TO 地址 (避免 IMAP TO 搜索不稳定的问题)
-                    search_criteria = '(FROM "openai.com")'
+                    # 搜索逻辑：优先使用 TO 过滤 (Gmail 适配较好)，辅以 FROM openai.com
+                    # 注意：部分 IMAP 服务器对 TO 搜索支持有限，我们本地仍保留严格过滤
+                    search_criteria = f'(FROM "openai.com" TO "{email_normalized}")'
                     
                     status, messages = mail.search(None, search_criteria)
+                    
+                    if status != "OK" or not messages[0]:
+                        # 如果 TO 搜索没结果，退而求其次只搜 FROM (兼容某些转发不规范的场景)
+                        search_criteria = '(FROM "openai.com")'
+                        status, messages = mail.search(None, search_criteria)
                     
                     if status == "OK" and messages[0]:
                         mail_ids = messages[0].split()
@@ -85,12 +91,21 @@ class ImapEmailService:
                                             continue
                                         
                                         # 2. 匹配收件人 (支持 Catch-all 场景)
+                                        # 使用正则实现更精准的匹配，防止子串包含 (如 a@x.com 匹配到 ba@x.com)
                                         to_addr_raw = str(msg.get("To", "")).lower()
-                                        if email_normalized not in to_addr_raw:
-                                            # 如果在 TO 里没搜到，再查一下 Delivered-To (部分转发邮件会改写这个头)
-                                            delivered_to = str(msg.get("Delivered-To", "")).lower()
-                                            if email_normalized not in delivered_to:
-                                                continue
+                                        delivered_to = str(msg.get("Delivered-To", "")).lower()
+                                        
+                                        # 预编译正则，匹配全词邮箱
+                                        email_pattern = rf"\b{re.escape(email_normalized)}\b"
+                                        
+                                        is_match = False
+                                        if re.search(email_pattern, to_addr_raw):
+                                            is_match = True
+                                        elif re.search(email_pattern, delivered_to):
+                                            is_match = True
+                                        
+                                        if not is_match:
+                                            continue
                                         
                                         # 3. 时间过滤：确保是本轮发送的新邮件 (允许 1 分钟左右的宽限，防止服务器时钟不准)
                                         if otp_sent_at:
@@ -99,8 +114,8 @@ class ImapEmailService:
                                                 msg_date = parsedate_to_datetime(date_str)
                                                 msg_ts = msg_date.timestamp()
                                                 
-                                                # 如果邮件时间早于 otp_sent_at 之前 30 秒，则认为是旧邮件 (防止两边时钟微弱偏差)
-                                                if msg_ts < (otp_sent_at - 30):
+                                                # 如果邮件时间早于 otp_sent_at 之前 10 秒，则认为是旧邮件 (收紧 grace period)
+                                                if msg_ts < (otp_sent_at - 10):
                                                     print(f"[IMAP] ⏳ 丢弃旧邮件 (Sent at {msg_date}, Requested at {datetime.fromtimestamp(otp_sent_at)})")
                                                     continue
                                             except Exception as e:

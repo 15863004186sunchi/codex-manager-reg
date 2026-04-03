@@ -925,6 +925,19 @@ class ChatGPTClient:
                         try:
                             page.wait_for_function("() => !document.querySelector('input[type=\"password\"]') || document.querySelector('input[inputmode=\"numeric\"]')", timeout=20000)
                             self._inspect_page(page, "[Stage: Post-Password]")
+                            
+                            # 【核心加固】处理 Oops 错误页面 (通常发生在高风险 IP 或提交过快)
+                            if "Oops" in page.title() or page.locator("button:has-text('Try again')").first.is_visible():
+                                self._log("⚠️ 发现 OpenAI 'Oops' 错误页面，尝试点击 'Try again'...")
+                                try_again = page.locator("button:has-text('Try again')").first
+                                if try_again.is_visible():
+                                    self._human_click(page, try_again)
+                                    page.wait_for_timeout(5000)
+                                    # 如果点击后 URL 没变，尝试手动跳转到验证码输入页 (因为验证码通常已经发出了)
+                                    if "Oops" in page.title() or "password" in page.url:
+                                        self._log("⚡ Oops 页面点击无效，尝试强制跳转到验证码校验页...")
+                                        page.goto(f"{self.AUTH}/email-verification", timeout=30000)
+                                        page.wait_for_timeout(3000)
                         except Exception:
                             self._log("⚠️ 密码提交后页面未显著跳转，可能存在隐藏验证码或网络拥堵。")
                         
