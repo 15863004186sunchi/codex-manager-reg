@@ -1040,13 +1040,29 @@ class ChatGPTClient:
                             
                         page.wait_for_timeout(1500)
                         
-                        # 提交个人资料 (增加对截图 2 中“完成账户创建”的精确匹配)
-                        submit_sel = "button[type='submit'], button:has-text('Agree'), button:has-text('Finish'), button:has-text('Submit'), button:has-text('完成'), button:has-text('同意'), button:has-text('开始吧'), button:has-text('账户创建')"
-                        self._human_click(page, submit_sel)
+                        # 提交个人资料 (增加对截图 2 中“完成账户创建”的精确处理)
+                        submit_sel = "button[type='submit'], button:has-text('Agree'), button:has-text('Finish'), button:has-text('Submit'), button:has-text('继续'), button:has-text('同步'), button:has-text('完成'), button:has-text('同意'), button:has-text('开始吧'), button:has-text('账户创建')"
                         
-                        # 关键：提交后多等一会，观察是否有错误提示（比如生日格式不对）
-                        page.wait_for_timeout(4000)
+                        # 循环尝试点击提交，直到按钮消失或重定向
+                        for sub_retry in range(3):
+                            submit_btn = page.locator(submit_sel).first
+                            if submit_btn.count() > 0 and submit_btn.is_visible():
+                                self._log(f"🖱️ [Playwright] 准备提交个人资料 (尝试 {sub_retry+1}/3)...")
+                                self._human_click(page, submit_btn)
+                                page.wait_for_timeout(4000)
+                                if not submit_btn.is_visible():
+                                    self._log("✅ 个人资料提交成功 (按钮已消失)")
+                                    break
+                            else:
+                                break
+                                
                         self._inspect_page(page, "[Stage: Post-Profile-Submit]")
+                        
+                        # 兜底：如果还停在注册域且没有任何报错，强制进聊天页 (因为账号通常已创建成功)
+                        if "auth.openai.com" in page.url and page.locator(submit_sel).count() == 0:
+                            self._log("⚡ 资料已提交成功但未自动跳转，强制尝试进入 chatgpt.com...")
+                            page.goto("https://chatgpt.com/", timeout=30000)
+                            page.wait_for_timeout(3000)
                         
                     except Exception as e:
                         self._log(f"⚠️ 填写个人资料阶段出现异常 (可能已自动跳过): {e}")
