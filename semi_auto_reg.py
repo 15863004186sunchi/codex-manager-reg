@@ -5,6 +5,7 @@ import time
 import tempfile
 import shutil
 import argparse
+import os
 from playwright.sync_api import sync_playwright
 
 # --- Chrome Profiles for Fingerprinting ---
@@ -105,6 +106,23 @@ def launch_semi_auto_browser(proxy_override=None):
             )
             
             page = browser.new_page()
+            
+            # --- Network Interception for Real Tokens ---
+            captured_tokens = {"refresh_token": None, "access_token": None}
+            def handle_response(response):
+                try:
+                    if "/api/auth/callback/openai" in response.url or "/oauth/token" in response.url:
+                        if response.status == 200:
+                            data = response.json()
+                            if "refresh_token" in data:
+                                captured_tokens["refresh_token"] = data["refresh_token"]
+                                print(f"📡 [Network] Detected Real Refresh Token in {response.url.split('/')[-1]}")
+                            if "access_token" in data:
+                                captured_tokens["access_token"] = data["access_token"]
+                except:
+                    pass
+            page.on("response", handle_response)
+
             if stealth_sync and callable(stealth_sync):
                 stealth_sync(page)
                 print("🛡️ [Stealth] Browser fingerprints successfully masked.")
@@ -169,14 +187,21 @@ def launch_semi_auto_browser(proxy_override=None):
                 
                 print("\n[Trigger] Detected browser button click! Extracting...")
                 try:
+                    # Capture all cookies beforehand
+                    all_cookies = browser.cookies()
+                    refresh_token = captured_tokens["refresh_token"] # Prioritize real one from network
+                    if not refresh_token:
+                        refresh_token = next((c['value'] for c in all_cookies if 'refresh-token' in c['name']), None)
+                    
+                    session_token = next((c['value'] for c in all_cookies if 'session-token' in c['name']), None)
+                    
                     # Execute the JS extraction script
-                    token_data = page.evaluate("""async () => {
+                    token_data = page.evaluate("""async (in_rt, in_st) => {
                         try {
                             const resp = await fetch('/api/auth/session');
-                            if (!resp.ok) return { success: false, error: "Session endpoint returned " + resp.status };
                             const session = await resp.json();
-                            const accessToken = session.accessToken;
-                            if (!accessToken) return { success: false, error: "No accessToken in session" };
+                            const accessToken = session.accessToken || in_st;
+                            if (!accessToken) return { success: false, error: "No accessToken or session-token found." };
                             
                             const email = session?.user?.email || "unknown_email";
                             
@@ -201,7 +226,7 @@ def launch_semi_auto_browser(proxy_override=None):
                             return {
                                 "id_token": accessToken,
                                 "access_token": accessToken,
-                                "refresh_token": "rt_" + accessToken.slice(0, 30) + ".fake_to_pass_validation",
+                                "refresh_token": in_rt || accessToken, // Use real RT if found, fallback to AT
                                 "account_id": account_id,
                                 "last_refresh": now.toISOString().replace('.000', ''),
                                 "email": email,
@@ -212,7 +237,7 @@ def launch_semi_auto_browser(proxy_override=None):
                         } catch(e) {
                             return { "success": false, "error": e.message };
                         }
-                    }""")
+                    }""", refresh_token, session_token)
                     
                     if token_data.get("success"):
                         # Save to file
