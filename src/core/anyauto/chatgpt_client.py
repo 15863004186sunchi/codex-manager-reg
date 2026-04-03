@@ -170,8 +170,13 @@ class ChatGPTClient:
             locator.click(force=True)
 
     def _human_type(self, page, selector, text, delay_range=(0.05, 0.2)):
-        """模拟人手敲击键盘，带有随机延迟"""
-        page.locator(selector).first.click()
+        """模拟人手敲击键盘，带有随机延迟 (兼容 string 或 locator)"""
+        if isinstance(selector, str):
+            locator = page.locator(selector).first
+        else:
+            locator = selector # 假设已是 Locator
+            
+        locator.click()
         for char in text:
             page.keyboard.type(char)
             time.sleep(random.uniform(*delay_range))
