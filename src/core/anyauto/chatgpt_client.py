@@ -944,30 +944,29 @@ class ChatGPTClient:
                         page.screenshot(path="registration_error_otp.png")
                         return False, f"Playwright 阶段填写验证码失败 (URL: {page.url}): {e}"
                     
-                    # 3. 填写个人资料 (处理可能出现的 Onboarding 引导、喜好设置等)
-                    try:
-                        self._log("👤 [Playwright] 准备进入个人资料填写阶段...")
-                        
                         # 循环尝试跳过引导页，直到出现姓名输入框
-                        for skip_attempt in range(5):
+                        for skip_attempt in range(8): # 增加尝试次数以应对更多引导页
                             self._inspect_page(page, f"[Stage: Onboarding-{skip_attempt}]")
                             
                             # 目标元素：姓名输入框
-                            name_sel = "input[name='name'], input[id='name'], input[placeholder*='Name']"
+                            name_sel = "input[name='name'], input[id='name'], input[placeholder*='Name'], input[placeholder*='名']"
                             if page.locator(name_sel).first.is_visible():
                                 self._log("✅ 已到达个人资料填写页面")
                                 break
                             
-                            # 尝试寻找并点击各种“继续/跳过/开始”按钮
-                            # 这里的选择器涵盖了：Continue, Skip, Next, Okay, Start, Let's go 等常见按钮
-                            skip_btns = page.locator("button:has-text('Continue'), button:has-text('Skip'), button:has-text('Next'), button:has-text('Okay'), button:has-text('Start'), button:has-text('Done')")
-                            if skip_btns.first.is_visible():
+                            # 尝试寻找并点击各种“继续/跳过/开始”按钮 (中两英双语支持)
+                            # 涵盖：Continue/继续, Skip/跳过, Next/下一步, Okay/好的, Start/开始, Done/完成, Finish/完成, Agree/同意, Let's go/好的，开始吧
+                            skip_text_sel = "button:has-text('Continue'), button:has-text('Skip'), button:has-text('Next'), button:has-text('Okay'), button:has-text('Start'), button:has-text('Done'), button:has-text('Finish'), button:has-text('Agree'), button:has-text('Let\\'s go'), button:has-text('继续'), button:has-text('跳过'), button:has-text('下一步'), button:has-text('好的'), button:has-text('开始'), button:has-text('完成'), button:has-text('同意'), button:has-text('开始吧'), a:has-text('跳过'), span:has-text('跳过')"
+                            
+                            skip_btn = page.locator(skip_text_sel).first
+                            if skip_btn.is_visible():
                                 self._log(f"⚡ [Onboarding] 发现引导按钮，尝试点击跳过...")
-                                self._human_click(page, skip_btns.first)
-                                page.wait_for_timeout(2000)
+                                self._human_click(page, skip_btn)
+                                page.wait_for_timeout(3000) # 增加等待时间让 UI 加载
                             else:
-                                self._log("⏳ [Onboarding] 未发现明显引导按钮，等待页面加载...")
-                                page.wait_for_timeout(3000)
+                                self._log("⏳ [Onboarding] 未发现明显引导按钮，尝试滚动页面或等待加载...")
+                                page.mouse.wheel(0, 500) # 模拟向下滚动
+                                page.wait_for_timeout(4000)
 
                         # 正式填写
                         self._log("📝 [Playwright] 正在填写 Name / Birthdate...")
@@ -977,15 +976,34 @@ class ChatGPTClient:
                         self._human_type(page, name_sel, f"{first_name} {last_name}")
                         page.wait_for_timeout(1000)
                         
-                        # 填写生日 (适配不同属性名)
-                        bday_sel = "input[name='birthday'], input[id='birthday'], input[name='birthdate'], input[type='date']"
-                        page.wait_for_selector(bday_sel, timeout=5000)
-                        self._human_type(page, bday_sel, birthdate)
-                        page.wait_for_timeout(1000)
+                        # 填写生日或年龄
+                        # 适配：birthday, birthdate, 年龄, Age, 你的年龄是多少
+                        bday_sel = "input[name='birthday'], input[id='birthday'], input[name='birthdate'], input[type='date'], input[placeholder*='年龄'], input[placeholder*='Age'], input[placeholder*='生日']"
+                        bday_input = page.locator(bday_sel).first
+                        bday_input.wait_for(timeout=5000)
+                        
+                        # 智能判断：如果是询问“年龄”，则填入数字；否则填入完整生日
+                        placeholder = bday_input.get_attribute("placeholder") or ""
+                        label_text = page.evaluate("(el) => el.labels ? el.labels[0].innerText : ''", bday_input.element_handle()) or ""
+                        
+                        if "年龄" in placeholder or "Age" in placeholder or "年龄" in label_text or "Age" in label_text:
+                            from datetime import datetime
+                            try:
+                                birth_year = int(birthdate.split('-')[0])
+                                age_val = str(datetime.now().year - birth_year)
+                            except:
+                                age_val = "25"
+                            self._log(f"🔢 检测到年龄字段，填入数字: {age_val}")
+                            self._human_type(page, bday_sel, age_val)
+                        else:
+                            self._human_type(page, bday_sel, birthdate)
+                            
+                        page.wait_for_timeout(1500)
                         
                         # 提交个人资料
-                        self._human_click(page, "button[type='submit'], button:has-text('Agree'), button:has-text('Finish'), button:has-text('Submit')")
-                        page.wait_for_timeout(3000)
+                        submit_sel = "button[type='submit'], button:has-text('Agree'), button:has-text('Finish'), button:has-text('Submit'), button:has-text('完成'), button:has-text('同意'), button:has-text('开始吧')"
+                        self._human_click(page, submit_sel)
+                        page.wait_for_timeout(5000)
                         
                     except Exception as e:
                         self._log(f"⚠️ 填写个人资料阶段出现异常 (可能已自动跳过): {e}")
