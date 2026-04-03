@@ -170,16 +170,22 @@ class ChatGPTClient:
             locator.click(force=True)
 
     def _human_type(self, page, selector, text, delay_range=(0.05, 0.2)):
-        """模拟人手敲击键盘，带有随机延迟 (兼容 string 或 locator)"""
+        """模拟人手敲击键盘，带有随机延迟 (兼容 string 或 locator，增加强制聚焦绕过遮挡)"""
         if isinstance(selector, str):
             locator = page.locator(selector).first
         else:
             locator = selector # 假设已是 Locator
             
-        locator.click()
-        for char in text:
-            page.keyboard.type(char)
-            time.sleep(random.uniform(*delay_range))
+        try:
+            # 增加 force=True 绕过 react-aria 等标签遮挡导致的 click 失败
+            locator.click(force=True, timeout=5000)
+            for char in text:
+                page.keyboard.type(char)
+                time.sleep(random.uniform(*delay_range))
+        except Exception:
+            self._log("⚠️ [Human] 模拟点击/输入遭遇遮挡或超时，尝试降级至 Playwright 原生 Fill...")
+            locator.fill(text, force=True)
+            
         self._log(f"⌨️ [Human] 完成内容录入: {'*' * len(text)}")
 
     def _inspect_page(self, page, label="[Inspector]"):
