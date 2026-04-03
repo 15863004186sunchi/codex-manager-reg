@@ -69,10 +69,10 @@ def launch_semi_auto_browser(proxy_override=None):
 
     with sync_playwright() as p:
         # Create a temporary directory for the browser profile
-        with tempfile.TemporaryDirectory() as temp_dir:
-            print(f"[Status] Profile created at: {temp_dir}")
-            
-            # Use stealth plugin if available
+        temp_dir = tempfile.mkdtemp(prefix="gpt_auto_")
+        print(f"[Status] Profile created at: {temp_dir}")
+        
+        try:
             stealth_sync = None
             try:
                 import playwright_stealth as ps
@@ -203,7 +203,8 @@ def launch_semi_auto_browser(proxy_override=None):
                     session_token = next((c['value'] for c in all_cookies if 'session-token' in c['name']), None)
                     
                     # Execute the JS extraction script
-                    token_data = page.evaluate("""async (in_rt, in_st) => {
+                    token_data = page.evaluate("""async (args) => {
+                        const [in_rt, in_st] = args;
                         try {
                             const fetchTask = fetch('/api/auth/session').then(r => r.json());
                             const timeoutTask = new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch Timeout (10s)')), 10000));
@@ -246,7 +247,7 @@ def launch_semi_auto_browser(proxy_override=None):
                         } catch(e) {
                             return { "success": false, "error": e.message };
                         }
-                    }""", refresh_token, session_token)
+                    }""", [refresh_token, session_token])
                     
                     if token_data.get("success"):
                         # Save to file
@@ -279,6 +280,15 @@ def launch_semi_auto_browser(proxy_override=None):
 
             browser.close()
             print("\n[Status] Browser session closed. Clean-up complete.")
+        finally:
+            try:
+                # Ensure browser is closed if it wasn't already
+                if 'browser' in locals():
+                    browser.close()
+            except:
+                pass
+            # Clean up temp dir
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="OpenAI Semi-Auto Registration Tool")
