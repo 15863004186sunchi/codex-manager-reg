@@ -990,15 +990,20 @@ class ChatGPTClient:
                         self._human_type(page, name_sel, f"{first_name} {last_name}")
                         page.wait_for_timeout(1000)
                         
-                        # 填写生日或年龄
-                        # 适配：birthday, birthdate, 年龄, Age, 你的年龄是多少
-                        bday_sel = "input[name='birthday'], input[id='birthday'], input[name='birthdate'], input[type='date'], input[placeholder*='年龄'], input[placeholder*='Age'], input[placeholder*='生日']"
+                        # 填写生日或年龄 (排除被 react-aria 隐藏的 input[type='hidden'])
+                        bday_sel = "input[name='birthday']:not([type='hidden']), input[id='birthday']:not([type='hidden']), input[name='birthdate']:not([type='hidden']), input[type='date'], input[placeholder*='年龄'], input[placeholder*='Age'], input[placeholder*='生日']"
                         bday_input = page.locator(bday_sel).first
+                        
+                        # 如果找不到可见的，退而求其次寻找任何匹配项并强制填写
+                        if not bday_input.is_visible():
+                             bday_sel_alt = "input[name='birthday'], input[id='birthday'], input[name='birthdate'], input[placeholder*='年龄']"
+                             bday_input = page.locator(bday_sel_alt).first
+                        
                         bday_input.wait_for(timeout=5000)
                         
                         # 智能判断：如果是询问“年龄”，则填入数字；否则填入完整生日
                         placeholder = bday_input.get_attribute("placeholder") or ""
-                        label_text = page.evaluate("(el) => el.labels ? el.labels[0].innerText : ''", bday_input.element_handle()) or ""
+                        label_text = page.evaluate("(el) => el.labels && el.labels.length > 0 ? el.labels[0].innerText : ''", bday_input.element_handle()) or ""
                         
                         if "年龄" in placeholder or "Age" in placeholder or "年龄" in label_text or "Age" in label_text:
                             from datetime import datetime
@@ -1008,9 +1013,9 @@ class ChatGPTClient:
                             except:
                                 age_val = "25"
                             self._log(f"🔢 检测到年龄字段，填入数字: {age_val}")
-                            self._human_type(page, bday_sel, age_val)
+                            self._human_type(page, bday_input, age_val)
                         else:
-                            self._human_type(page, bday_sel, birthdate)
+                            self._human_type(page, bday_input, birthdate)
                             
                         page.wait_for_timeout(1500)
                         
@@ -1023,33 +1028,87 @@ class ChatGPTClient:
                         self._log(f"⚠️ 填写个人资料阶段出现异常 (可能已自动跳过): {e}")
                         page.screenshot(path="registration_error_profile.png")
                     
-                    # 4. 等待成功重定向与 Session 获取
-                    self._log("⏳ [Playwright] 等待重定向至 chatgpt.com 以收取战利品...")
+                    # 4. 等待成功重定向与 Session 获取 (增加 JS 强制提取逻辑)
+                    self._log("⏳ [Playwright] 等待重定向至 chatgpt.com 并提取 Session...")
                     try:
+                        # 等待 URL 跳转并处理可能出现的欢迎引导
                         page.wait_for_url("https://chatgpt.com/**", timeout=30000)
+                        
+                        # 进入 chatgpt.com 后，继续尝试点击引导按钮，直到稳定
+                        for landing_skip in range(3):
+                            landing_btns = page.locator("button:has-text('Okay'), button:has-text('Start'), button:has-text('继续'), button:has-text('开始吧'), button:has-text('下一步')")
+                            if landing_btns.first.is_visible():
+                                self._log("⚡ [Landing] 发现最后的欢迎引导，点击进入...")
+                                self._human_click(page, landing_btns.first)
+                                page.wait_for_timeout(2000)
                     except Exception:
                         pass
+
+                    # 🌟 核心升级：使用注入 JS 的方式直接从 API 提取最高质量的 Session (带真实 Account ID)
+                    token_data = page.evaluate("""async () => {
+                        try {
+                            const resp = await fetch('/api/auth/session');
+                            const session = await resp.json();
+                            const accessToken = session.accessToken;
+                            const email = session?.user?.email || "unknown_email";
+                            
+                            // 解析 Account ID (使用更稳健的 Base64 逻辑)
+                            let account_id = "";
+                            try {
+                                const payloadBase64 = accessToken.split('.')[1];
+                                let base = payloadBase64.replace(/-/g, '+').replace(/_/g, '/');
+                                while (base.length % 4) base += '=';
+                                const payloadText = atob(base);
+                                const payload = JSON.parse(decodeURIComponent(escape(payloadText)));
+                                const authInfo = payload["https://api.openai.com/auth"];
+                                if (authInfo && authInfo["chatgpt_account_id"]) {
+                                    account_id = authInfo["chatgpt_account_id"];
+                                }
+                            } catch(e) { account_id = "default-uuid-fallback"; }
+                            
+                            return {
+                                "access_token": accessToken,
+                                "account_id": account_id,
+                                "email": email,
+                                "success": !!accessToken
+                            };
+                        } catch(e) {
+                            return { "success": false, "error": e.message };
+                        }
+                    }""")
                     
-                    # 将 Playwright 中的有效 Cookie 传回给当前的对象会话
-                    cookies = browser.cookies()
-                    found_auth = False
-                    for c in cookies:
-                        # 对于 httpx / curl_cffi，这里设置 domain 的方式：
-                        if c["name"] == "__Secure-next-auth.session-token":
-                            self.session.cookies.set(c["name"], c["value"], domain=c["domain"])
-                            found_auth = True
+                    if token_data.get("success"):
+                        self._log(f"💎 [JS Extractor] 成功提取到 Session! Account ID: {token_data['account_id']}")
+                        # 同步到会话对象
+                        self.session.cookies.set("__Secure-next-auth.session-token", token_data["access_token"], domain=".chatgpt.com")
+                        # 将结果存入类属性供后续 batch_register 使用 (如果需要)
+                        self.last_token_info = token_data
+                        found_auth = True
+                    else:
+                        # 降级：尝试从 Cookie 提取 (兼容性)
+                        self._log("⚠️ [JS Extractor] JS 提取失败，尝试回退至 Cookie 模式...")
+                        cookies = browser.cookies()
+                        for c in cookies:
+                            if c["name"] == "__Secure-next-auth.session-token":
+                                self.session.cookies.set(c["name"], c["value"], domain=c["domain"])
+                                found_auth = True
                     
                     if found_auth:
                         self._log("✅ [Playwright] 成功萃取 __Secure-next-auth.session-token！")
-                        return True, "注册成功 (Hybrid)"
+                        return True, "注册并萃取成功", self.last_token_info
                     else:
-                        return False, "未能抓取到 next-auth 会话令牌，请检查页面是否成功跳转。"
+                        return False, "未能抓取到 next-auth 会话令牌，请检查页面是否成功跳转。", None
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    page.screenshot(path="registration_error_final.png")
+                    return False, f"Playwright 流程发生严重异常: {e}", None
                 finally:
                     browser.close()
 
     def register_complete_flow(self, email, password, first_name, last_name, birthdate, skymail_client):
         """
-        完整的注册流程（基于原版 run_register 方法）
+        完整的注册流程（支持 Hybrid 与常规模式）
         
         Args:
             email: 邮箱
@@ -1057,10 +1116,10 @@ class ChatGPTClient:
             first_name: 名
             last_name: 姓
             birthdate: 生日
-            skymail_client: Skymail 客户端（用于获取验证码）
+            skymail_client: 邮件客户端容器
             
         Returns:
-            tuple: (success, message)
+            tuple: (success, message, token_data)
         """
         from urllib.parse import urlparse
         
