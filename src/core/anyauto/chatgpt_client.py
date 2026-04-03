@@ -7,6 +7,10 @@ import random
 import uuid
 import time
 import math
+import sys
+import datetime
+import traceback
+from datetime import datetime
 from urllib.parse import urlparse
 
 try:
@@ -944,6 +948,10 @@ class ChatGPTClient:
                         page.screenshot(path="registration_error_otp.png")
                         return False, f"Playwright 阶段填写验证码失败 (URL: {page.url}): {e}"
                     
+                    # 3. 填写个人资料 (处理可能出现的 Onboarding 引导、喜好设置等)
+                    try:
+                        self._log("👤 [Playwright] 准备进入个人资料填写阶段...")
+                        
                         # 循环尝试跳过引导页，直到出现姓名输入框
                         for skip_attempt in range(8): # 增加尝试次数以应对更多引导页
                             self._inspect_page(page, f"[Stage: Onboarding-{skip_attempt}]")
