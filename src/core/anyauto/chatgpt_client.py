@@ -104,6 +104,15 @@ class ChatGPTClient:
         // 5. 伪造硬件并发数与内存 (避免 0/0 极端值)
         Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
         Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+
+        // 6. 额外混淆：伪造 Canvas 指纹中的部分干扰
+        const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+        CanvasRenderingContext2D.prototype.getImageData = function() {
+            const res = originalGetImageData.apply(this, arguments);
+            // 微调数据以改变哈希
+            if (res.data.length > 0) res.data[0] = res.data[0] ^ 1;
+            return res;
+        };
     }
     """
     
@@ -914,11 +923,13 @@ class ChatGPTClient:
             import playwright_stealth as ps
             # 优先寻找同步接口 stealth_sync，其次尝试 stealth
             stealth_sync = getattr(ps, 'stealth_sync', getattr(ps, 'stealth', None))
-            # 兼容性加固：如果加载到了模块而不是函数，尝试深度挖掘
-            if stealth_sync and not callable(stealth_sync) and hasattr(stealth_sync, 'stealth_sync'):
-                stealth_sync = getattr(stealth_sync, 'stealth_sync')
-            elif stealth_sync and not callable(stealth_sync) and hasattr(stealth_sync, 'stealth'):
-                stealth_sync = getattr(stealth_sync, 'stealth')
+            
+            # 兼容性加固：如果加载到了模块而不是函数 (部分版本打包问题)
+            if stealth_sync and not callable(stealth_sync):
+                if hasattr(ps, 'stealth_sync') and callable(getattr(ps, 'stealth_sync')):
+                    stealth_sync = getattr(ps, 'stealth_sync')
+                elif hasattr(ps, 'stealth') and callable(getattr(ps, 'stealth')):
+                    stealth_sync = getattr(ps, 'stealth')
             
             # 如果依然不是 callable，报个错
             if stealth_sync and not callable(stealth_sync):
@@ -1205,11 +1216,21 @@ class ChatGPTClient:
                         # 核心加固：如果发生了 OAuthCallback 错误，或者是停留还在 auth.openai.com，说明注册完成了但最后一步握手失败
                         current_url = page.url
                         if "error=OAuthCallback" in current_url or "auth.openai.com" in current_url:
-                            self._log(f"⚠️ [Handshake] 检测到 OAuth 错误或跳转中断 ({current_url})，尝试强制重新登录以恢复 Session...")
+                            self._log(f"⚠️ [Handshake] 检测到 OAuth 错误或跳转中断 ({current_url})，尝试深度清理并强制重新登录...")
                             # 账户通常已经创建成功，直接访问登录页尝试重新建立会话
                             try:
+                                # 彻底清理 ChatGPT 相关 LocalStorage/Cookies 以防状态污染
+                                page.evaluate("() => { localStorage.clear(); sessionStorage.clear(); }")
+                                # 尝试回到 /auth/login
                                 page.goto(f"{self.BASE}/auth/login", timeout=30000)
                                 page.wait_for_timeout(5000)
+                                # 再次检查是否依然报错，若是，尝试点击页面上的任何重试按钮
+                                if "error=" in page.url:
+                                    retry_btn = page.locator("button:has-text('Try again'), button:has-text('重试'), button:has-text('Log in')").first
+                                    if retry_btn.count() > 0 and retry_btn.is_visible():
+                                        self._log("⚡ 发现重试按钮，尝试点击...")
+                                        self._human_click(page, retry_btn)
+                                        page.wait_for_timeout(5000)
                             except:
                                 pass
                         else:
