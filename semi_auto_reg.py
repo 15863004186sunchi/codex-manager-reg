@@ -1,18 +1,69 @@
-import os
+import random
 import sys
 import json
 import time
 import tempfile
 import shutil
+import argparse
 from playwright.sync_api import sync_playwright
+
+# --- Chrome Profiles for Fingerprinting ---
+_CHROME_PROFILES = [
+    {"major": 131, "build": 6778, "patch_range": (69, 205), "sec_ch_ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"'},
+    {"major": 133, "build": 6943, "patch_range": (33, 153), "sec_ch_ua": '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"'},
+    {"major": 136, "build": 7103, "patch_range": (48, 175), "sec_ch_ua": '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"'},
+]
+
+def _random_chrome_version():
+    profile = random.choice(_CHROME_PROFILES)
+    full_ver = f"{profile['major']}.0.{profile['build']}.{random.randint(*profile['patch_range'])}"
+    ua = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{full_ver} Safari/537.36"
+    return full_ver, ua, profile["sec_ch_ua"]
 
 # Add project root to sys.path
 sys.path.append(os.getcwd())
 
-def launch_semi_auto_browser():
+def launch_semi_auto_browser(proxy_override=None):
     print("=" * 60)
-    print("🚀 OpenAI Semi-Auto Registration Tool (Clean Environment)")
+    print("🚀 OpenAI Semi-Auto Registration Tool (Stealth + Proxy)")
     print("=" * 60)
+    
+    # Fingerprint Randomization
+    chrome_full, user_agent, sec_ch_ua = _random_chrome_version()
+    print(f"🎭 [Fingerprint] Using Chrome/{chrome_full}")
+    print(f"🌍 [Fingerprint] UA: {user_agent}")
+    
+    # Proxy Detection
+    proxy_config = None
+    if proxy_override:
+        print(f"🌐 [Proxy] Using manual override: {proxy_override}")
+        proxy_config = {"server": proxy_override}
+    else:
+        proxy_file = os.path.join("data", "proxies_webshare.txt")
+        if os.path.exists(proxy_file):
+            try:
+                with open(proxy_file, "r") as f:
+                    proxies = [l.strip() for l in f if l.strip() and not l.startswith("#")]
+                if proxies:
+                    p_url = random.choice(proxies)
+                    # Webshare format: host:port:user:pass
+                    parts = p_url.split(":")
+                    if len(parts) == 4:
+                        host, port, user, pwd = parts
+                        proxy_config = {
+                            "server": f"http://{host}:{port}",
+                            "username": user,
+                            "password": pwd
+                        }
+                        print(f"🌐 [Proxy] Using Webshare: {host}:{port}")
+                    else:
+                        proxy_config = {"server": p_url}
+                        print(f"🌐 [Proxy] Using Raw: {p_url}")
+            except Exception as e:
+                print(f"⚠️ [Proxy] Failed to load proxy list: {e}")
+        else:
+            print("💡 [Proxy] No proxy file found, using Direct connection.")
+    
     print("[Status] Initializing clean browser profile...")
 
     with sync_playwright() as p:
@@ -38,6 +89,13 @@ def launch_semi_auto_browser():
             browser = p.chromium.launch_persistent_context(
                 user_data_dir=temp_dir,
                 headless=False,
+                proxy=proxy_config,
+                user_agent=user_agent,
+                extra_http_headers={
+                    "sec-ch-ua": sec_ch_ua,
+                    "sec-ch-ua-mobile": "?0",
+                    "sec-ch-ua-platform": '"Windows"',
+                },
                 args=[
                     "--no-sandbox",
                     "--disable-blink-features=AutomationControlled",
@@ -189,4 +247,13 @@ def launch_semi_auto_browser():
             print("\n[Status] Browser session closed. Clean-up complete.")
 
 if __name__ == "__main__":
-    launch_semi_auto_browser()
+    parser = argparse.ArgumentParser(description="OpenAI Semi-Auto Registration Tool")
+    parser.add_argument("--proxy", help="Manual proxy override (host:port or user:pass@host:port)")
+    args = parser.parse_args()
+    
+    try:
+        launch_semi_auto_browser(proxy_override=args.proxy)
+    except KeyboardInterrupt:
+        print("\n👋 User terminated session.")
+    except Exception as e:
+        print(f"\n💥 Fatal Error: {e}")
