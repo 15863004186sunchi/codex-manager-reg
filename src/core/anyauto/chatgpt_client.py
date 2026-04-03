@@ -1053,7 +1053,9 @@ class ChatGPTClient:
                                 self._human_click(page, landing_btns.first)
                                 page.wait_for_timeout(2000)
                     except Exception:
-                      # --- Session 萃取阶段 ---
+                        pass
+
+                    # --- Session 萃取阶段 ---
                     found_auth = False
                     # 优先使用注入 JS 来获取更全面的 Token 信息 (包含 Account ID)
                     token_data = page.evaluate("""async () => {
