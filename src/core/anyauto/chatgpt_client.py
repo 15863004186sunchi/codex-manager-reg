@@ -164,9 +164,11 @@ class ChatGPTClient:
             
             self._human_move_mouse(page, center_x, center_y)
             time.sleep(random.uniform(0.1, 0.3))
+            self._log(f"🖱️ [Human] [Clicking] 准备点击元素: {selector if isinstance(selector, str) else 'Locator'} (Center: {center_x},{center_y})")
             locator.click(force=True)
-            self._log(f"🖱️ [Human] 点击了元素: {selector if isinstance(selector, str) else 'Locator'}")
+            self._log(f"🖱️ [Human] [Done] 点击成功 (Current URL: {page.url})")
         else:
+            self._log(f"⚠️ [Human] [Clicking] 无法获取BoundingBox，尝试 Force Click: {selector if isinstance(selector, str) else 'Locator'}")
             locator.click(force=True)
 
     def _human_type(self, page, selector, text, delay_range=(0.05, 0.2)):
@@ -873,6 +875,12 @@ class ChatGPTClient:
                 )
                 page = browser.new_page()
                 
+                # --- 增强型全域日志监听集 ---
+                page.on("framenavigated", lambda frame: self._log(f"🚩 [Nav] 框架导航: {frame.url}"))
+                page.on("pageerror", lambda err: self._log(f"💥 [JS Error] 页面崩溃/错误: {err}"))
+                page.on("dialog", lambda dialog: self._log(f"💬 [Dialog] 发现弹窗: {dialog.type} - {dialog.message} (自动 Accept)"))
+                page.on("requestfailed", lambda req: self._log(f"❌ [Network] 请求失败: {req.url} ({req.failure.error_text})") if "openai" in req.url else None)
+                
                 # 开启指纹隐藏插件
                 if stealth_sync and callable(stealth_sync):
                     try:
@@ -916,11 +924,11 @@ class ChatGPTClient:
                     
                     # 1. 密码填写 (绕过 Stage 1 风控)
                     try:
-                        self._log("📝 [Playwright] 准备填写密码...")
                         pwd_input_sel = "input[type='password'], input[name='password']"
                         # 等待元素出现
                         page.wait_for_selector(pwd_input_sel, timeout=30000)
                         self._inspect_page(page, "[Stage: Password Page]")
+                        self._log(f"📝 [Playwright] 准备填写密码 (Length: {len(password)})")
                         self._human_type(page, pwd_input_sel, password)
                         
                         # 重点：点击继续并验证页面是否跳转 (即验证码页面是否出现)
@@ -968,9 +976,11 @@ class ChatGPTClient:
                     try:
                         self._log(f"🔑 [Playwright] 正在确认验证码输入框 (URL: {page.url})...")
                         # 验证码输入框等待设置为 60 秒，以对抗超慢代理或二次验证
-                        page.locator("input[inputmode='numeric']").first.wait_for(timeout=60000)
-                        # 这里直接使用 human_type 在第一个输入框上，通常会自动跳转
-                        self._human_type(page, "input[inputmode='numeric']", otp_code, delay_range=(0.1, 0.3))
+                        input_otp = page.locator("input[inputmode='numeric']").first
+                        input_otp.wait_for(timeout=60000)
+                        self._log(f"⌨️ [OTP] 准备输入验证码: {otp_code}")
+                        self._human_type(page, input_otp, otp_code, delay_range=(0.1, 0.3))
+                        self._log("⌨️ [OTP] 验证码输入完成，等待渲染或跳转...")
                         page.wait_for_timeout(5000)
                     except Exception as e:
                         page.screenshot(path="registration_error_otp.png")
@@ -1031,11 +1041,13 @@ class ChatGPTClient:
                                 if any(k in (placeholder + label_text) for k in ["年龄", "Age", "age"]):
                                     from datetime import datetime
                                     age_val = str(datetime.now().year - int(birthdate.split('-')[0]))
-                                    self._log(f"🔢 发现可见年龄框，填入年龄: {age_val}")
+                                    self._log(f"🔢 [Profile] 检测到年龄输入诉求 (Placeholder: {placeholder}, Label: {label_text})")
+                                    self._log(f"🔢 [Profile] 填入计算年龄: {age_val}")
                                     self._human_type(page, bday_input, age_val)
                                 else:
                                     formatted_bday = birthdate.replace("-", "/")
-                                    self._log(f"📅 发现可见生日框，填入日期: {formatted_bday}")
+                                    self._log(f"📅 [Profile] 检测到生日日期输入诉求 (Placeholder: {placeholder}, Label: {label_text})")
+                                    self._log(f"📅 [Profile] 填入日期: {formatted_bday}")
                                     self._human_type(page, bday_input, formatted_bday)
                                 page.wait_for_timeout(1000)
                             elif bday_hidden.count() > 0:
