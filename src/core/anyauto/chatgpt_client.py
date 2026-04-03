@@ -156,10 +156,10 @@ class ChatGPTClient:
             
             self._human_move_mouse(page, center_x, center_y)
             time.sleep(random.uniform(0.1, 0.3))
-            locator.click()
+            locator.click(force=True)
             self._log(f"🖱️ [Human] 点击了元素: {selector}")
         else:
-            locator.click()
+            locator.click(force=True)
 
     def _human_type(self, page, selector, text, delay_range=(0.05, 0.2)):
         """模拟人手敲击键盘，带有随机延迟"""
@@ -791,10 +791,10 @@ class ChatGPTClient:
         
         # 调试环境：记录 sys.path 确认为何 uv 环境下 import 失败
         try:
+            import playwright_stealth
             from playwright_stealth import stealth_sync
-        except ImportError:
-            self._log(f"⚠️ 未检测到 playwright-stealth 库! sys.executable: {sys.executable}")
-            # self._log(f"sys.path: {sys.path[:5]} ...")
+        except Exception as e:
+            self._log(f"⚠️ Playwright-stealth 核心加载失败 (报错: {e}), sys.executable: {sys.executable}")
             stealth_sync = None
 
         self._log("🌟 启动 Playwright Hybrid Flow (Headful + Stealth)...")
@@ -828,7 +828,9 @@ class ChatGPTClient:
                 # 开启指纹隐藏插件
                 if stealth_sync:
                     stealth_sync(page)
-                    self._log("🛡️ [Stealth] 已启用浏览器指纹混淆插件。")
+                    self._log("🛡️ [Stealth] 指纹混淆插件加载成功！")
+                else:
+                    self._log("❌ [Stealth] 指纹插件加载失败，正裸奔运行，极易被风控！")
                 
                 # 注入关键的 oai-did 确保从协议层传过去的 session 是一致的
                 try:
@@ -866,8 +868,12 @@ class ChatGPTClient:
                         self._human_type(page, pwd_input_sel, password)
                         
                         # 重点：点击继续并验证页面是否跳转 (即验证码页面是否出现)
-                        self._log("🖱️ [Playwright] 点击 Continue 并观察页面变动...")
+                        self._log("🖱️ [Playwright] 准备提交密码并观察跳转...")
+                        page.wait_for_timeout(2000) # 模拟思考时间
                         self._human_click(page, "button[type='submit'], button:has-text('Continue')")
+                        
+                        # 记录当前发送时间，用于后续 IMAP 过滤
+                        otp_sent_at = time.time()
                         
                         # 等待验证码页面或者个人资料页面出现 (如果是登录流会直接过，如果是注册流会进 OTP)
                         # 我们等待 input[inputmode='numeric'] 或者输入框消失
@@ -883,8 +889,8 @@ class ChatGPTClient:
                         return False, f"Playwright 阶段填写密码失败 (URL: {current_url}): {e}"
                     
                     # 2. 获取并填写验证码
-                    self._log("📧 [Playwright] 等待并获取邮件验证码...")
-                    otp_code = skymail_client.wait_for_verification_code(email, timeout=90)
+                    self._log(f"📧 [Playwright] 等待并获取邮件验证码 (过滤早于 {otp_sent_at} 的旧邮件)...")
+                    otp_code = skymail_client.get_verification_code(email, timeout=120, otp_sent_at=otp_sent_at)
                     if not otp_code:
                         return False, "未收到邮箱验证码，流程终止！"
                     
