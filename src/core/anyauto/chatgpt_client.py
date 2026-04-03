@@ -878,10 +878,15 @@ class ChatGPTClient:
             # 优先寻找同步接口 stealth_sync，其次尝试 stealth
             stealth_sync = getattr(ps, 'stealth_sync', getattr(ps, 'stealth', None))
             # 兼容性加固：如果加载到了模块而不是函数，尝试深度挖掘
-            if stealth_sync and not hasattr(stealth_sync, '__call__') and hasattr(stealth_sync, 'stealth_sync'):
+            if stealth_sync and not callable(stealth_sync) and hasattr(stealth_sync, 'stealth_sync'):
                 stealth_sync = getattr(stealth_sync, 'stealth_sync')
-            elif stealth_sync and not hasattr(stealth_sync, '__call__') and hasattr(stealth_sync, 'stealth'):
+            elif stealth_sync and not callable(stealth_sync) and hasattr(stealth_sync, 'stealth'):
                 stealth_sync = getattr(stealth_sync, 'stealth')
+            
+            # 如果依然不是 callable，报个错
+            if stealth_sync and not callable(stealth_sync):
+                self._log(f"⚠️ [Stealth] 找到的对象依然不可调用 (Type: {type(stealth_sync)})，将跳过注入。")
+                stealth_sync = None
         except Exception as e:
             self._log(f"⚠️ Playwright-stealth 核心加载失败 (报错: {e}), sys.executable: {sys.executable}")
             stealth_sync = None
