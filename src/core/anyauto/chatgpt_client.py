@@ -971,7 +971,16 @@ class ChatGPTClient:
                 page.on("framenavigated", lambda frame: self._log(f"🚩 [Nav] 框架导航: {frame.url}"))
                 page.on("pageerror", lambda err: self._log(f"💥 [JS Error] 页面崩溃/错误: {err}"))
                 page.on("dialog", lambda dialog: self._log(f"💬 [Dialog] 发现弹窗: {dialog.type} - {dialog.message} (自动 Accept)"))
-                page.on("requestfailed", lambda req: self._log(f"❌ [Network] 请求失败: {req.url} ({req.failure.error_text})") if "openai" in req.url else None)
+                
+                def on_request_failed(req):
+                    try:
+                        if req.failure and "openai" in req.url:
+                            # 兼容性处理：req.failure 可能是一个对象也可能是一个字符串
+                            err_msg = getattr(req.failure, 'error_text', str(req.failure))
+                            self._log(f"❌ [Network] 请求失败: {req.url} ({err_msg})")
+                    except:
+                        pass
+                page.on("requestfailed", on_request_failed)
                 
                 # --- 指纹混淆策略 (强制 + 插件) ---
                 # 无论插件是否加载成功，均尝试注入 Native Stealth 脚本作为基础防线
