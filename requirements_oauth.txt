@@ -1,0 +1,14 @@
+# OpenAI自动注册和OAuth依赖
+
+# 浏览器自动化
+playwright==1.48.0
+
+# HTTP请求
+httpx==0.27.0
+requests==2.31.0
+
+# 重试机制
+tenacity==8.2.3
+
+# 其他工具
+python-dotenv==1.0.0
